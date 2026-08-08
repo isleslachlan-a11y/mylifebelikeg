@@ -1,1 +1,106 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+:root {
+  /* ---- design tokens: the night-sky palette ------------------------------- */
+  --bg-deep: #0a0918; /* page background */
+  --bg-surface: #14122e; /* cards, panels */
+  --bg-raised: #1e1b3d; /* hover, elevated */
+  --border-subtle: #2a2650;
+  --primary: #8b7bd8; /* purple, primary actions */
+  --primary-soft: #b9a9f5; /* hover, focus rings */
+  --star: #f5d89e; /* completions, achievements, highlights */
+  --text-primary: #edebfa;
+  --text-muted: #9b96c7;
+  --rag-green: #4fb8a5;
+  --rag-amber: #d9a05b;
+  --rag-red: #c9566b;
+  --rag-grey: #6b7280;
+
+  /* ---- shadcn/ui semantic slots, wired onto the tokens above --------------
+     Dark ink (--bg-deep) is used as the foreground on saturated accent
+     backgrounds (primary, destructive) rather than near-white text: at these
+     lightness levels it's the pairing that actually clears WCAG AA contrast. */
+  --background: var(--bg-deep);
+  --foreground: var(--text-primary);
+  --card: var(--bg-surface);
+  --card-foreground: var(--text-primary);
+  --popover: var(--bg-raised);
+  --popover-foreground: var(--text-primary);
+  --primary-foreground: var(--bg-deep);
+  --secondary: var(--bg-raised);
+  --secondary-foreground: var(--text-primary);
+  --muted: var(--bg-raised);
+  --muted-foreground: var(--text-muted);
+  --accent: var(--bg-raised);
+  --accent-foreground: var(--text-primary);
+  --destructive: var(--rag-red);
+  --destructive-foreground: var(--bg-deep);
+  --border: var(--border-subtle);
+  --input: var(--border-subtle);
+  --ring: var(--primary-soft);
+  --radius: 0.625rem;
+}
+
+@theme inline {
+  --font-sans: var(--font-inter);
+  --font-display: var(--font-instrument-serif);
+
+  /* Tokens usable directly, e.g. bg-deep, bg-surface, border-subtle, bg-star.
+     --primary and --text-primary both exist as raw custom properties above,
+     but only one can own the bare `primary` utility name; shadcn's Button
+     etc. hard-code `bg-primary`, so that name has to mean the purple. The
+     near-white text token is reachable the idiomatic shadcn way instead:
+     text-foreground (default text) and text-muted-foreground (dimmed text). */
+  --color-deep: var(--bg-deep);
+  --color-surface: var(--bg-surface);
+  --color-raised: var(--bg-raised);
+  --color-subtle: var(--border-subtle);
+  --color-primary-soft: var(--primary-soft);
+  --color-star: var(--star);
+  --color-rag-green: var(--rag-green);
+  --color-rag-amber: var(--rag-amber);
+  --color-rag-red: var(--rag-red);
+  --color-rag-grey: var(--rag-grey);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}
