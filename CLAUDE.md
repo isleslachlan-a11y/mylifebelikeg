@@ -24,6 +24,10 @@ Next.js (App Router) + TypeScript, Supabase (Postgres + Auth + RLS), Tailwind CS
 
 The full data model lives in `Schema.MD` and the migrations in `supabase/migrations/`. These are the source of truth — read them rather than inferring table shapes.
 
+## Gotchas
+
+- This Next.js version deprecated `middleware.ts` in favor of `src/proxy.ts` (exported function named `proxy`, not `middleware`). A `middleware.ts` file is silently never invoked — no build error, no warning in dev output beyond an easy-to-miss deprecation notice — and because it's also at the project root rather than `src/` (this project uses `src/app`), a root-level `proxy.ts` is *also* silently never invoked. Confirm it's live by checking `next build` output for a `ƒ Proxy (Middleware)` line.
+
 <!-- BEGIN:nextjs-agent-rules -->
 
 # This is NOT the Next.js you know
