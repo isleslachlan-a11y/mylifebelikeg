@@ -94,3 +94,5 @@ of it: a PR gets a preview deployment, a merge to the default branch
 deploys to production. Both happen whether or not CI passes; CI existing
 alongside that is what makes a red PR visible before merge, not what makes
 deployment happen.
+
+<!-- CI test marker: confirms .github/workflows/ci.yml runs on a real PR. Safe to remove after verifying. -->
