@@ -18,6 +18,12 @@
   --rag-red: #c9566b;
   --rag-grey: #6b7280;
 
+  /* The app's two llama characters. Used as accents (avatar, name label,
+     border) on their messages, not as full backgrounds — the app stays
+     night-sky indigo; these just say who's talking. */
+  --llama-derek: #b08655; /* warm brown */
+  --llama-fluffy: #f3efe6; /* soft white/cream */
+
   /* ---- shadcn/ui semantic slots, wired onto the tokens above --------------
      Dark ink (--bg-deep) is used as the foreground on saturated accent
      backgrounds (primary, destructive) rather than near-white text: at these
@@ -63,6 +69,8 @@
   --color-rag-amber: var(--rag-amber);
   --color-rag-red: var(--rag-red);
   --color-rag-grey: var(--rag-grey);
+  --color-llama-derek: var(--llama-derek);
+  --color-llama-fluffy: var(--llama-fluffy);
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
