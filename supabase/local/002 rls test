@@ -1,0 +1,121 @@
+-- LOCAL ONLY. Verifies row level security actually isolates users.
+-- Must run as a NON-superuser role, since superusers bypass RLS entirely.
+-- Assumes 001_smoke_test.sql has already been applied.
+\set ON_ERROR_STOP on
+
+-- Roles and grants now come from migration 0008_grants.sql.
+-- This test deliberately performs NO grants of its own, so a failure here
+-- means 0008 is incomplete.
+grant usage on schema auth to authenticated;
+grant execute on function auth.uid() to authenticated;
+
+set role authenticated;
+
+-- ---- User A sees their own data ---------------------------------------------
+select set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+
+do $$
+declare n int;
+begin
+  select count(*) into n from pots;
+  assert n = 1, format('A should see exactly their own pot, saw %s', n);
+
+  select count(*) into n from goals;
+  assert n = 4, format('A should see their 4 goals, saw %s', n);
+
+  select count(*) into n from cashflow_items;
+  assert n = 3, format('A should see their 3 cashflow items, saw %s', n);
+
+  select count(*) into n from check_ins;
+  assert n = 3, format('A should see their 3 check-ins, saw %s', n);
+
+  select count(*) into n from someday_items;
+  assert n = 1, format('A should see their someday item, saw %s', n);
+end $$;
+
+-- ---- User B: shared goal visible, private everything else invisible ---------
+select set_config('request.jwt.claim.sub', '22222222-2222-2222-2222-222222222222', false);
+
+do $$
+declare n int;
+begin
+  -- B participates in the London move only.
+  select count(*) into n from goals;
+  assert n = 1, format('B should see only the 1 shared goal, saw %s', n);
+
+  -- B must NOT see A's pot. Pots are never shared, even on a shared goal.
+  select count(*) into n from pots;
+  assert n = 1, format('B should see only their own pot, saw %s', n);
+
+  select count(*) into n from pots where user_id = '11111111-1111-1111-1111-111111111111';
+  assert n = 0, 'LEAK: B can see A''s pot';
+
+  -- B must NOT see A's income and expenses.
+  select count(*) into n from cashflow_items;
+  assert n = 0, format('LEAK: B can see %s of A''s cashflow items', n);
+
+  -- B must NOT see A's private check-ins (capacity + weekly note).
+  select count(*) into n from check_ins;
+  assert n = 0, format('LEAK: B can see %s of A''s check-ins', n);
+
+  -- B must NOT see A's someday list.
+  select count(*) into n from someday_items;
+  assert n = 0, format('LEAK: B can see %s of A''s someday items', n);
+
+  -- B SHOULD see ratings on the goal they share -- that is the whole point.
+  select count(*) into n from goal_ratings;
+  assert n = 3, format('B should see 3 ratings on the shared goal, saw %s', n);
+
+  -- B SHOULD see tasks on the shared goal.
+  select count(*) into n from tasks;
+  assert n = 4, format('B should see 4 tasks on the shared goal, saw %s', n);
+
+  -- B SHOULD see ledger entries against the shared goal (co-planning needs it).
+  select count(*) into n from ledger_entries;
+  assert n = 1, format('B should see 1 shared-goal ledger entry, saw %s', n);
+end $$;
+
+-- ---- B cannot escalate -------------------------------------------------------
+do $$
+begin
+  -- B is a collaborator, not owner: cannot add participants.
+  begin
+    insert into goal_participants (goal_id, user_id, role)
+    values ('bbbbbbbb-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'viewer');
+    assert false, 'LEAK: collaborator was able to add a participant';
+  exception when insufficient_privilege or unique_violation then null;
+  end;
+
+  -- B cannot create a goal owned by A.
+  begin
+    insert into goals (owner_id, title) values ('11111111-1111-1111-1111-111111111111', 'Sneaky');
+    assert false, 'LEAK: B created a goal owned by A';
+  exception when insufficient_privilege then null;
+  end;
+
+  -- B cannot write a ledger entry as A.
+  begin
+    insert into ledger_entries (user_id, goal_id, entry_type, amount_minor, currency)
+    values ('11111111-1111-1111-1111-111111111111', 'bbbbbbbb-0000-0000-0000-000000000001',
+            'contribution', 100, 'AUD');
+    assert false, 'LEAK: B wrote a ledger entry as A';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+-- ---- Anonymous sees nothing --------------------------------------------------
+select set_config('request.jwt.claim.sub', '', false);
+
+do $$
+declare n int;
+begin
+  select count(*) into n from goals;         assert n = 0, 'LEAK: anon sees goals';
+  select count(*) into n from pots;          assert n = 0, 'LEAK: anon sees pots';
+  select count(*) into n from profiles;      assert n = 0, 'LEAK: anon sees profiles';
+  select count(*) into n from ledger_entries;assert n = 0, 'LEAK: anon sees ledger';
+  select count(*) into n from someday_items; assert n = 0, 'LEAK: anon sees someday items';
+  select count(*) into n from trip_stops;    assert n = 0, 'LEAK: anon sees trip stops';
+end $$;
+
+reset role;
+select 'RLS ISOLATION VERIFIED' as result;

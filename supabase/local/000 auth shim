@@ -1,0 +1,23 @@
+-- LOCAL DEVELOPMENT ONLY. Do not apply to Supabase.
+-- Supabase provides the `auth` schema, `auth.users` and `auth.uid()` for you.
+-- This shim recreates just enough of it to run and test the migrations against
+-- a plain Postgres instance.
+
+create schema if not exists auth;
+
+create table if not exists auth.users (
+  id            uuid primary key default gen_random_uuid(),
+  email         text unique,
+  created_at    timestamptz not null default now()
+);
+
+-- Mirrors Supabase's auth.uid(): reads the current request's JWT subject.
+-- Locally you can impersonate a user with:
+--   select set_config('request.jwt.claim.sub', '<uuid>', false);
+create or replace function auth.uid()
+returns uuid
+language sql
+stable
+as $$
+  select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid;
+$$;
