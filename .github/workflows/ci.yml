@@ -1,0 +1,34 @@
+name: CI
+
+# Validation only — this must never deploy. Vercel's own GitHub
+# integration builds and deploys every push/PR independently of this
+# workflow, including preview deployments for PRs.
+on:
+  pull_request:
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      # tsc needs .next/types (LayoutProps, PageProps, etc.) to exist first
+      # — `next typegen` generates just that, without a full build.
+      - name: Generate route types
+        run: npx next typegen
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
