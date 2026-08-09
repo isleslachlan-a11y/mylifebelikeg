@@ -9,6 +9,7 @@ import { createClient } from "@/lib/supabase/server";
 import { goalStateLabel } from "../goal-state-label";
 import { DeleteGoalButton } from "./delete-goal-button";
 import { GoalStateActions } from "./goal-state-actions";
+import { MilestonesSection } from "./milestones-section";
 import { ParticipantsSection } from "./participants-section";
 
 export default async function GoalDetailPage({
@@ -61,6 +62,30 @@ export default async function GoalDetailPage({
 
   if (participantsError) {
     throw new Error(participantsError.message);
+  }
+
+  // Mirrors app.can_edit_goal (owner OR a collaborator-role active
+  // participant) — milestones_write's RLS is the real gate, but the UI
+  // needs to know too, to decide whether to render the editing controls
+  // at all. Unlike the goal-level actions in actions.ts (which restrict
+  // to owner_id — correct there, since app.can_edit_goal only mattered
+  // for edits before P1.4 added real participants), milestones follow
+  // the full owner-or-collaborator surface RLS actually grants.
+  const canEditGoal =
+    isOwner ||
+    (participants ?? []).some(
+      (p) => p.user_id === userId && p.role === "collaborator",
+    );
+
+  const { data: milestones, error: milestonesError } = await supabase
+    .from("milestones")
+    .select("*")
+    .eq("goal_id", id)
+    .is("deleted_at", null)
+    .order("due_date", { ascending: true });
+
+  if (milestonesError) {
+    throw new Error(milestonesError.message);
   }
 
   return (
@@ -183,8 +208,17 @@ export default async function GoalDetailPage({
         </section>
       )}
 
-      {/* Placeholders — milestones and tasks are later packages. */}
-      <PlaceholderSection title="Milestones" />
+      <section className="flex flex-col gap-2">
+        <h2 className="font-display text-lg">Milestones</h2>
+        <MilestonesSection
+          goalId={goal.id}
+          timezone={timezone}
+          canEdit={canEditGoal}
+          initialMilestones={milestones ?? []}
+        />
+      </section>
+
+      {/* Placeholder — tasks are a later package. */}
       <PlaceholderSection title="Tasks" />
     </div>
   );

@@ -4,6 +4,7 @@ import {
   formatDate,
   formatDateRange,
   fromGoalOffset,
+  isOverdue,
   relativeDays,
   toGoalOffset,
 } from "./dates";
@@ -87,5 +88,26 @@ describe("relativeDays", () => {
     const lateUtc = new Date("2026-01-14T23:30:00Z");
     expect(relativeDays("2026-01-15", BRISBANE, lateUtc)).toBe("today");
     expect(relativeDays("2026-01-15", LONDON, lateUtc)).toBe("in 1 day");
+  });
+});
+
+describe("isOverdue", () => {
+  const now = new Date("2026-03-14T12:00:00Z");
+
+  it("is false for today and future dates", () => {
+    expect(isOverdue("2026-03-14", BRISBANE, now)).toBe(false);
+    expect(isOverdue("2026-03-15", BRISBANE, now)).toBe(false);
+  });
+
+  it("is true for past dates", () => {
+    expect(isOverdue("2026-03-13", BRISBANE, now)).toBe(true);
+    expect(isOverdue("2026-01-01", BRISBANE, now)).toBe(true);
+  });
+
+  it("knows nothing about completion — that's the caller's job", () => {
+    // Pure date comparison: a completed item due yesterday is still,
+    // definitionally, an overdue *date*. Callers combine this with their
+    // own completed_at check to decide what that means for display.
+    expect(isOverdue("2026-03-13", BRISBANE, now)).toBe(true);
   });
 });

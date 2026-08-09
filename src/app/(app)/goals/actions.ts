@@ -92,11 +92,17 @@ export async function updateGoal(
   const supabase = await createClient();
   const userId = await getUserId(supabase);
 
-  // app.can_edit_goal (the RLS policy's real gate) currently only allows
-  // the owner in practice, since participants aren't built yet — this
-  // owner_id filter is redundant with RLS today. Revisit once
-  // collaborator-edit exists; scoping to owner_id here would then be
-  // wrongly restrictive.
+  // NOTE (stale as of P1.4): this owner_id filter was correct when
+  // written, because participants didn't exist yet and app.can_edit_goal
+  // (the RLS policy's real gate) only ever resolved true for the owner.
+  // P1.4 added real collaborator-role participants, for whom
+  // app.can_edit_goal now also returns true — so this filter is now
+  // actively *more* restrictive than RLS allows, blocking a collaborator
+  // from editing the goal form even though they're allowed to edit its
+  // milestones (see [id]/milestones-actions.ts, which correctly defers
+  // to RLS instead of re-scoping to owner_id). Deliberately left as-is
+  // here — fixing goal-form/state-transition access for collaborators is
+  // its own change, not something to fold into an unrelated package.
   const { data, error } = await supabase
     .from("goals")
     .update(toRow(input))

@@ -133,6 +133,23 @@ export function relativeDays(
   return `${-diff} day${diff === -1 ? "" : "s"} ago`;
 }
 
+/**
+ * Whether `date` (bare or timestamptz) has passed, as of `now` in
+ * `timezone`. Pure calendar comparison only — it doesn't know about
+ * "completed" or any other domain concept; callers combine this with
+ * their own completion state (e.g. `isOverdue(dueDate, tz) && !completedAt`).
+ */
+export function isOverdue(
+  date: string,
+  timezone: string,
+  now: Date = new Date(),
+): boolean {
+  const target = isBareDate(date)
+    ? date
+    : todayInZone(timezone, new Date(date));
+  return toGoalOffset(target, todayInZone(timezone, now)) < 0;
+}
+
 /** Integer day offset of `taskDate` from `goalStart` (both bare dates). */
 export function toGoalOffset(taskDate: string, goalStart: string): number {
   return Math.round(
