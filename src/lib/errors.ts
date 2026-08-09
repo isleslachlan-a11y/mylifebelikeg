@@ -28,6 +28,9 @@ const CONSTRAINT_MESSAGES: Record<string, string> = {
   // where deleted_at is null) — Postgres still reports it as a "constraint"
   // violation by the index's name, so it matches CONSTRAINT_NAME_RE the same way.
   life_areas_user_name_key: "You already have a life area with that name.",
+  goals_currency_check: "Currency must be a 3-letter code.",
+  goals_target_amount_minor_check: "Target amount can't be negative.",
+  goals_title_check: "Title can't be empty.",
 };
 
 const FALLBACK_MESSAGE = "Something went wrong — please try again.";

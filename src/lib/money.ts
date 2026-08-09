@@ -5,6 +5,27 @@
  * two places that should ever cross the minor-units/display boundary.
  */
 
+/**
+ * A short, curated list for currency pickers — not exhaustive ISO 4217,
+ * just what this app's users are likely to need. Every entry is a real
+ * currency `Intl.NumberFormat` recognises. That matters because the
+ * database only checks `currency ~ '^[A-Z]{3}$'` (see
+ * `app.is_currency_code`) — a well-formed but made-up code like "ZZZ"
+ * would pass that check yet make `formatMoney`/`minorUnitDigits` throw.
+ * Picking from this list instead of free-text input avoids that class of
+ * bug entirely, rather than catching it after the fact.
+ */
+export const COMMON_CURRENCIES = [
+  "AUD",
+  "USD",
+  "EUR",
+  "GBP",
+  "JPY",
+  "NZD",
+  "CAD",
+  "SGD",
+] as const;
+
 const formatterCache = new Map<string, Intl.NumberFormat>();
 
 function getFormatter(currency: string, locale = "en-US"): Intl.NumberFormat {
