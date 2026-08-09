@@ -1,0 +1,156 @@
+-- LOCAL ONLY. Verifies allocation tracking and the affordable-from engine.
+-- Run after 001_smoke_test.sql.
+\set ON_ERROR_STOP on
+begin;
+
+-- The London move: 15,000 GBP target, 3,000 already contributed.
+-- Allocate 500 GBP/month from A and 300 GBP/month from B = 800/month.
+-- Remaining 12,000 / 800 = 15 months.
+update goal_participants
+   set monthly_allocation_minor = 50000
+ where goal_id = 'bbbbbbbb-0000-0000-0000-000000000001'
+   and user_id = '11111111-1111-1111-1111-111111111111';
+
+update goal_participants
+   set monthly_allocation_minor = 30000
+ where goal_id = 'bbbbbbbb-0000-0000-0000-000000000001'
+   and user_id = '22222222-2222-2222-2222-222222222222';
+
+do $$
+declare a record; expected date;
+begin
+  select * into a from v_goal_affordability
+   where goal_id = 'bbbbbbbb-0000-0000-0000-000000000001';
+
+  assert a.remaining_minor = 1200000, format('remaining wrong: %s', a.remaining_minor);
+  assert a.monthly_rate_minor = 80000, format('monthly rate wrong: %s', a.monthly_rate_minor);
+
+  expected := (date_trunc('month',
+                app.today_for_user('11111111-1111-1111-1111-111111111111')::timestamp)
+               + make_interval(months => 15))::date;
+  assert a.affordable_from = expected,
+    format('affordable_from wrong: %s, expected %s', a.affordable_from, expected);
+end $$;
+
+-- Raising the rate must pull the date forward.
+do $$
+declare before_d date; after_d date;
+begin
+  select affordable_from into before_d from v_goal_affordability
+   where goal_id = 'bbbbbbbb-0000-0000-0000-000000000001';
+
+  update goal_participants set monthly_allocation_minor = 100000
+   where goal_id = 'bbbbbbbb-0000-0000-0000-000000000001'
+     and user_id = '11111111-1111-1111-1111-111111111111';
+
+  select affordable_from into after_d from v_goal_affordability
+   where goal_id = 'bbbbbbbb-0000-0000-0000-000000000001';
+
+  assert after_d < before_d, format('raising the rate did not pull the date in: %s -> %s', before_d, after_d);
+end $$;
+
+-- Zero allocation means "never", not a date.
+update goal_participants set monthly_allocation_minor = 0
+ where goal_id = 'bbbbbbbb-0000-0000-0000-000000000001';
+
+do $$
+declare a record;
+begin
+  select * into a from v_goal_affordability where goal_id = 'bbbbbbbb-0000-0000-0000-000000000001';
+  assert a.affordable_from is null, 'zero allocation must yield NULL, not a date';
+  assert a.affordable_by_target = false, 'unfundable goal cannot be affordable by target';
+end $$;
+
+-- A fully funded goal is affordable today.
+update goal_participants set monthly_allocation_minor = 50000
+ where goal_id = 'bbbbbbbb-0000-0000-0000-000000000001';
+update goals set target_amount_minor = 300000
+ where id = 'bbbbbbbb-0000-0000-0000-000000000001';
+
+do $$
+declare a record;
+begin
+  select * into a from v_goal_affordability where goal_id = 'bbbbbbbb-0000-0000-0000-000000000001';
+  assert a.remaining_minor = 0, format('should be fully funded, remaining %s', a.remaining_minor);
+  assert a.affordable_from = app.today_for_user('11111111-1111-1111-1111-111111111111'),
+    'fully funded goal should be affordable today';
+end $$;
+
+update goals set target_amount_minor = 1500000
+ where id = 'bbbbbbbb-0000-0000-0000-000000000001';
+
+-- ---- slip against the target date -------------------------------------------
+do $$
+declare a record;
+begin
+  update goals set target_date = app.today_for_user('11111111-1111-1111-1111-111111111111') + 30
+   where id = 'bbbbbbbb-0000-0000-0000-000000000001';
+
+  select * into a from v_goal_affordability where goal_id = 'bbbbbbbb-0000-0000-0000-000000000001';
+  assert a.affordable_by_target = false, 'money arrives long after a 30-day target';
+  assert a.slips_by_days > 0, format('slip should be positive, got %s', a.slips_by_days);
+end $$;
+
+-- ---- over-allocation reality check ------------------------------------------
+-- A's capacity is ~4,333 AUD/month. Allocate 4,000 GBP/month (= 8,000 AUD).
+update goal_participants set monthly_allocation_minor = 400000
+ where goal_id = 'bbbbbbbb-0000-0000-0000-000000000001'
+   and user_id = '11111111-1111-1111-1111-111111111111';
+
+do $$
+declare s record;
+begin
+  select * into s from v_allocation_summary where user_id = '11111111-1111-1111-1111-111111111111';
+  assert s.allocated_minor = 800000, format('allocated should convert GBP->AUD: %s', s.allocated_minor);
+  assert s.over_allocated, 'should be flagged over-allocated';
+  assert s.free_minor < 0, format('free should be negative, got %s', s.free_minor);
+end $$;
+
+-- Back to something sane.
+update goal_participants set monthly_allocation_minor = 50000
+ where goal_id = 'bbbbbbbb-0000-0000-0000-000000000001'
+   and user_id = '11111111-1111-1111-1111-111111111111';
+
+do $$
+declare s record;
+begin
+  select * into s from v_allocation_summary where user_id = '11111111-1111-1111-1111-111111111111';
+  assert not s.over_allocated, 'should no longer be over-allocated';
+  assert s.free_minor > 0, format('free should be positive, got %s', s.free_minor);
+end $$;
+
+-- ---- financial horizon -------------------------------------------------------
+do $$
+declare h date;
+begin
+  h := app.financial_horizon('11111111-1111-1111-1111-111111111111');
+  assert h is not null, 'horizon should exist with an active funded goal';
+  assert h > app.today_for_user('11111111-1111-1111-1111-111111111111'),
+    'horizon should be in the future';
+end $$;
+
+-- Archiving the only funded goal clears the horizon.
+update goals set state = 'archived' where id = 'bbbbbbbb-0000-0000-0000-000000000001';
+do $$
+declare h date;
+begin
+  h := app.financial_horizon('11111111-1111-1111-1111-111111111111');
+  assert h is null, format('horizon should be null with no active funded goals, got %s', h);
+end $$;
+
+-- ---- spend_against goals are excluded ---------------------------------------
+do $$
+declare n int;
+begin
+  select count(*) into n from v_goal_affordability
+   where goal_id = 'bbbbbbbb-0000-0000-0000-000000000004';  -- the Japan trip is save_toward
+  assert n = 1, 'save_toward trip should appear in affordability';
+
+  update goals set funding = 'spend_against' where id = 'bbbbbbbb-0000-0000-0000-000000000004';
+  select count(*) into n from v_goal_affordability
+   where goal_id = 'bbbbbbbb-0000-0000-0000-000000000004';
+  assert n = 0, 'spend_against goals must not appear in affordability';
+end $$;
+
+rollback;
+select 'AFFORDABILITY ENGINE VERIFIED' as result;

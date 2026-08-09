@@ -1,0 +1,107 @@
+-- LOCAL ONLY. Verifies RAG date arithmetic follows the goal owner's timezone.
+-- Deterministic by construction: Pacific/Kiritimati (UTC+14) and Pacific/Midway
+-- (UTC-11) are 25 hours apart, so they are ALWAYS on different calendar dates
+-- regardless of when this test runs.
+\set ON_ERROR_STOP on
+begin;
+
+insert into auth.users (id, email) values
+  ('33333333-3333-3333-3333-333333333333', 'east@example.com'),
+  ('44444444-4444-4444-4444-444444444444', 'west@example.com');
+
+insert into profiles (id, handle, display_name, timezone) values
+  ('33333333-3333-3333-3333-333333333333', 'east_user', 'East', 'Pacific/Kiritimati'),
+  ('44444444-4444-4444-4444-444444444444', 'west_user', 'West', 'Pacific/Midway');
+
+-- The 25-hour spread guarantees a date difference at every instant.
+do $$
+declare d_east date; d_west date;
+begin
+  d_east := app.today_for_user('33333333-3333-3333-3333-333333333333');
+  d_west := app.today_for_user('44444444-4444-4444-4444-444444444444');
+  assert d_east > d_west,
+    format('expected east ahead of west, got % vs %', d_east, d_west);
+  assert d_east - d_west = 1,
+    format('expected exactly one day apart, got %s', d_east - d_west);
+end $$;
+
+-- An unrecognised timezone must fall back, not raise.
+update profiles set timezone = 'Not/AZone' where id = '44444444-4444-4444-4444-444444444444';
+do $$
+begin
+  assert app.today_for_user('44444444-4444-4444-4444-444444444444')
+       = (now() at time zone 'UTC')::date, 'bad timezone should fall back to UTC';
+end $$;
+update profiles set timezone = 'Pacific/Midway' where id = '44444444-4444-4444-4444-444444444444';
+
+-- Two identical goals, owners in different timezones, must produce different
+-- elapsed% -- proving the calculation follows the owner rather than the server.
+insert into goals (id, owner_id, title, state, start_date, target_date, created_at)
+select ('ffffffff-0000-0000-0000-00000000000' || n)::uuid,
+       case n when 1 then '33333333-3333-3333-3333-333333333333'
+              else '44444444-4444-4444-4444-444444444444' end::uuid,
+       'Identical goal', 'active',
+       app.today_for_user('44444444-4444-4444-4444-444444444444') - 50,
+       app.today_for_user('44444444-4444-4444-4444-444444444444') + 50,
+       now() - interval '60 days'
+from generate_series(1,2) n;
+
+insert into tasks (goal_id, owner_id, title, offset_days, duration_days, status, completed_at)
+select ('ffffffff-0000-0000-0000-00000000000' || n)::uuid,
+       case n when 1 then '33333333-3333-3333-3333-333333333333'
+              else '44444444-4444-4444-4444-444444444444' end::uuid,
+       'A task', 0, 10, 'done', now()
+from generate_series(1,2) n;
+
+insert into tasks (goal_id, owner_id, title, offset_days, duration_days)
+select ('ffffffff-0000-0000-0000-00000000000' || n)::uuid,
+       case n when 1 then '33333333-3333-3333-3333-333333333333'
+              else '44444444-4444-4444-4444-444444444444' end::uuid,
+       'Another task', 10, 10
+from generate_series(1,2) n;
+
+do $$
+declare e record; w record;
+begin
+  select * into e from app.compute_goal_rag('ffffffff-0000-0000-0000-000000000001');
+  select * into w from app.compute_goal_rag('ffffffff-0000-0000-0000-000000000002');
+
+  assert (e.inputs->>'today')::date - (w.inputs->>'today')::date = 1,
+    'RAG did not use the owner-local date';
+
+  -- Same tasks, same dates, one extra elapsed day for the eastern owner.
+  assert (e.inputs->>'elapsed_pct')::numeric > (w.inputs->>'elapsed_pct')::numeric,
+    format('elapsed%% should differ by timezone: east %s vs west %s',
+           e.inputs->>'elapsed_pct', w.inputs->>'elapsed_pct');
+
+  assert e.inputs->>'owner_timezone' = 'Pacific/Kiritimati', 'timezone not reported in inputs';
+end $$;
+
+-- A milestone due "today" in the owner's zone is not yet overdue.
+insert into milestones (goal_id, title, due_date)
+values ('ffffffff-0000-0000-0000-000000000001', 'Due today',
+        app.today_for_user('33333333-3333-3333-3333-333333333333'));
+
+do $$
+declare r record;
+begin
+  select * into r from app.compute_goal_rag('ffffffff-0000-0000-0000-000000000001');
+  assert (r.inputs->>'overdue_milestones')::int = 0,
+    'a milestone due today must not count as overdue';
+end $$;
+
+-- One day earlier in the owner's zone IS overdue.
+insert into milestones (goal_id, title, due_date)
+values ('ffffffff-0000-0000-0000-000000000001', 'Due yesterday',
+        app.today_for_user('33333333-3333-3333-3333-333333333333') - 1);
+
+do $$
+declare r record;
+begin
+  select * into r from app.compute_goal_rag('ffffffff-0000-0000-0000-000000000001');
+  assert (r.inputs->>'overdue_milestones')::int = 1, 'overdue milestone not detected';
+  assert r.schedule_status = 'red', 'overdue milestone must force red';
+end $$;
+
+rollback;
+select 'TIMEZONE HANDLING VERIFIED' as result;

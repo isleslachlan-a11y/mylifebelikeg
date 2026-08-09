@@ -280,6 +280,7 @@ export default async function GoalDetailPage({
           goalId={goal.id}
           timezone={timezone}
           canEdit={canEditGoal}
+          currentUserId={userId}
           goalStartDate={goal.start_date}
           goalCurrency={goal.currency}
           milestones={milestones ?? []}

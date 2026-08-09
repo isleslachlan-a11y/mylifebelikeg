@@ -25,9 +25,53 @@ async function getUserId(supabase: SupabaseServerClient): Promise<string> {
 }
 
 /**
+ * Owner isn't just handed through on create or update — the UI limits
+ * the choice to the goal owner or a collaborator-role participant
+ * (nothing in the schema enforces "task owner must be on the goal";
+ * tasks_owner_id_fkey only requires *some* profiles row), so a crafted
+ * request has to be checked the same way here, not just kept out of the
+ * dropdown. Returns an error string, or null if ownerId is valid.
+ */
+async function validateTaskOwner(
+  supabase: SupabaseServerClient,
+  goalId: string,
+  ownerId: string,
+): Promise<string | null> {
+  const { data: goal, error: goalError } = await supabase
+    .from("goals")
+    .select("owner_id")
+    .eq("id", goalId)
+    .maybeSingle();
+  if (goalError || !goal) {
+    return "That goal couldn't be found.";
+  }
+  if (ownerId === goal.owner_id) {
+    return null;
+  }
+
+  const { data: participant, error: participantError } = await supabase
+    .from("goal_participants")
+    .select("id")
+    .eq("goal_id", goalId)
+    .eq("user_id", ownerId)
+    .eq("role", "collaborator")
+    .is("removed_at", null)
+    .maybeSingle();
+  if (participantError) {
+    return humanizeDbError(participantError);
+  }
+  return participant
+    ? null
+    : "Choose the goal owner or a collaborator on this goal.";
+}
+
+/**
  * Quick-add: title only, everything else rides the column defaults
  * (offset_days 0, duration_days 1, status not_started) — exactly the
  * "sensible defaults" the spec asks for, so there's nothing else to set.
+ * As of P1.9 this is the hotkey path (bound to "t"), not the default —
+ * real use showed the round trip back into each task to fix its dates
+ * was the tedium, so createTask (below) is what "Add task" opens now.
  * Returns the created row (including trigger-derived computed_start/
  * computed_end) so the caller can render it immediately without a second
  * round trip or a full page refresh, which matters for quick-add's "no
@@ -48,6 +92,73 @@ export async function createTaskQuick(
   const { data, error } = await supabase
     .from("tasks")
     .insert({ goal_id: goalId, owner_id: userId, title: trimmed })
+    .select()
+    .single();
+
+  if (error) {
+    return { ok: false, error: humanizeDbError(error) };
+  }
+
+  revalidatePath(`/goals/${goalId}`);
+  return { ok: true, data };
+}
+
+export type NewTaskInput = {
+  title: string;
+  ownerId: string;
+  milestoneId: string | null;
+  durationDays: number;
+  /** Already converted from a real date via toGoalOffset — see add-task-form.tsx. Omitted entirely when the goal has no start_date (nothing to convert against). */
+  offsetDays?: number;
+};
+
+/**
+ * The new default (P1.9): title, owner, dates, and milestone all set in
+ * one save — "Save creates a fully specified task with no follow-up edit
+ * needed." Never touches computed_start/computed_end, same as
+ * createTaskQuick/updateTask — those are trigger-derived.
+ */
+export async function createTask(
+  goalId: string,
+  input: NewTaskInput,
+): Promise<ActionResult<Task>> {
+  const trimmed = input.title.trim();
+  if (!trimmed) {
+    return { ok: false, error: "Title can't be empty." };
+  }
+  if (!Number.isInteger(input.durationDays) || input.durationDays < 0) {
+    return {
+      ok: false,
+      error: "Duration must be a whole number of days, zero or more.",
+    };
+  }
+  if (input.offsetDays !== undefined && input.offsetDays < 0) {
+    return {
+      ok: false,
+      error: "A task can't start before the goal's start date.",
+    };
+  }
+
+  const supabase = await createClient();
+  await getUserId(supabase);
+
+  const ownerError = await validateTaskOwner(supabase, goalId, input.ownerId);
+  if (ownerError) {
+    return { ok: false, error: ownerError };
+  }
+
+  const { data, error } = await supabase
+    .from("tasks")
+    .insert({
+      goal_id: goalId,
+      owner_id: input.ownerId,
+      title: trimmed,
+      milestone_id: input.milestoneId,
+      duration_days: input.durationDays,
+      ...(input.offsetDays !== undefined
+        ? { offset_days: input.offsetDays }
+        : {}),
+    })
     .select()
     .single();
 
@@ -120,39 +231,10 @@ export async function updateTask(
   const supabase = await createClient();
   await getUserId(supabase);
 
-  // owner_id isn't just handed through — the UI limits the choice to the
-  // goal owner or a collaborator-role participant (nothing in the schema
-  // enforces "task owner must be on the goal"; tasks_owner_id_fkey only
-  // requires *some* profiles row), so a crafted request has to be checked
-  // the same way here, not just kept out of the dropdown.
   if (patch.ownerId !== undefined) {
-    const { data: goal, error: goalError } = await supabase
-      .from("goals")
-      .select("owner_id")
-      .eq("id", goalId)
-      .maybeSingle();
-    if (goalError || !goal) {
-      return { ok: false, error: "That goal couldn't be found." };
-    }
-
-    if (patch.ownerId !== goal.owner_id) {
-      const { data: participant, error: participantError } = await supabase
-        .from("goal_participants")
-        .select("id")
-        .eq("goal_id", goalId)
-        .eq("user_id", patch.ownerId)
-        .eq("role", "collaborator")
-        .is("removed_at", null)
-        .maybeSingle();
-      if (participantError) {
-        return { ok: false, error: humanizeDbError(participantError) };
-      }
-      if (!participant) {
-        return {
-          ok: false,
-          error: "Choose the goal owner or a collaborator on this goal.",
-        };
-      }
+    const ownerError = await validateTaskOwner(supabase, goalId, patch.ownerId);
+    if (ownerError) {
+      return { ok: false, error: ownerError };
     }
     update.owner_id = patch.ownerId;
   }

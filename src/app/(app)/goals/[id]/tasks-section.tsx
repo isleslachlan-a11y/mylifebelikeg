@@ -1,6 +1,12 @@
 "use client";
 
-import { useRef, useState, useTransition, type FormEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  useTransition,
+  type FormEvent,
+} from "react";
 import {
   closestCenter,
   DndContext,
@@ -20,6 +26,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { Database } from "@/types/database";
+import { AddTaskForm } from "./add-task-form";
 import {
   createTaskQuick,
   deleteTask,
@@ -51,6 +58,7 @@ export function TasksSection({
   goalId,
   timezone,
   canEdit,
+  currentUserId,
   goalStartDate,
   goalCurrency,
   milestones,
@@ -61,6 +69,7 @@ export function TasksSection({
   goalId: string;
   timezone: string;
   canEdit: boolean;
+  currentUserId: string;
   goalStartDate: string | null;
   goalCurrency: string;
   milestones: Milestone[];
@@ -73,6 +82,36 @@ export function TasksSection({
   const [newTitle, setNewTitle] = useState("");
   const [isPending, startTransition] = useTransition();
   const quickAddRef = useRef<HTMLInputElement>(null);
+
+  // The full "Add task" form is the default now (P1.9); quick-add is the
+  // hotkey path, hidden until "t" reveals it — see the effect below.
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [showQuickAdd, setShowQuickAdd] = useState(false);
+  // Remembered in plain component state, not web storage (CLAUDE.md rule
+  // 7) — "within a session" just means "for as long as this page is
+  // open", which in-memory state already gives for free.
+  const [lastDuration, setLastDuration] = useState(1);
+
+  useEffect(() => {
+    if (!canEdit) return;
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key !== "t" || event.metaKey || event.ctrlKey || event.altKey) {
+        return;
+      }
+      const active = document.activeElement;
+      const isTyping =
+        active instanceof HTMLElement &&
+        (active.tagName === "INPUT" ||
+          active.tagName === "TEXTAREA" ||
+          active.isContentEditable);
+      if (isTyping) return;
+
+      event.preventDefault();
+      setShowQuickAdd(true);
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [canEdit]);
 
   function updateOne(id: string, next: Task) {
     setTasks((prev) => prev.map((t) => (t.id === id ? next : t)));
@@ -227,12 +266,33 @@ export function TasksSection({
         </div>
       )}
 
-      {canEdit && (
+      {canEdit && showAddForm && (
+        <AddTaskForm
+          goalId={goalId}
+          goalStartDate={goalStartDate}
+          currentUserId={currentUserId}
+          milestones={milestones}
+          assignableUsers={assignableUsers}
+          lastDuration={lastDuration}
+          onCreated={(task, durationUsed) => {
+            setTasks((prev) => [...prev, task]);
+            setLastDuration(durationUsed);
+          }}
+          onClose={() => setShowAddForm(false)}
+        />
+      )}
+
+      {canEdit && showQuickAdd && (
         <form onSubmit={handleAdd} className="flex items-center gap-2 pt-1">
           <Input
             ref={quickAddRef}
             value={newTitle}
             onChange={(e) => setNewTitle(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                setShowQuickAdd(false);
+              }
+            }}
             placeholder="Quick-add a task and press Enter"
             aria-label="New task title"
             disabled={isPending}
@@ -246,6 +306,23 @@ export function TasksSection({
             Add
           </Button>
         </form>
+      )}
+
+      {canEdit && !showAddForm && (
+        <div className="flex items-center gap-2 pt-1">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setShowAddForm(true)}
+          >
+            Add task
+          </Button>
+          <span className="text-muted-foreground text-xs">
+            or press <kbd className="font-sans">t</kbd> to quick-add a title
+            only
+          </span>
+        </div>
       )}
     </div>
   );
