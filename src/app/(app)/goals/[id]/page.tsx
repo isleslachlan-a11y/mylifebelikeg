@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { GoalTimeline } from "@/components/timeline/goal-timeline";
 import { describeTimeRemaining, formatDate, todayInZone } from "@/lib/dates";
 import { formatMoney } from "@/lib/money";
 import {
@@ -255,6 +256,16 @@ export default async function GoalDetailPage({
           </div>
         )}
       </div>
+
+      <section className="flex flex-col gap-2">
+        <GoalTimeline
+          startDate={goal.start_date}
+          targetDate={goal.target_date}
+          today={today}
+          tasks={tasks ?? []}
+          milestones={milestones ?? []}
+        />
+      </section>
 
       {ownerProfile && (
         <section className="flex flex-col gap-2">
