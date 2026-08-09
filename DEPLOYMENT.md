@@ -50,20 +50,21 @@ whose target URL isn't on its allow-list. Configure this in the Supabase
 dashboard → **Authentication → URL Configuration**, for the same project
 `NEXT_PUBLIC_SUPABASE_URL` points at:
 
-- **Site URL**: the production domain, e.g. `https://starmap.vercel.app`
-  (or your custom domain once one exists).
-- **Redirect URLs** (allow-list, one per line — supports `*` wildcards):
-  - `https://starmap.vercel.app/auth/callback` — production.
-  - `https://starmap-*.vercel.app/auth/callback` — Vercel preview
-    deployments. Every PR gets a fresh URL like
-    `https://starmap-git-<branch>-<team>.vercel.app`; the wildcard covers
-    all of them so preview builds don't need per-PR reconfiguration.
-  - `http://localhost:3000/auth/callback` — local dev (adjust the port if
-    you run `next dev -p <other-port>`, as this repo's own testing did).
+- **Site URL**: `https://my-life-be-like.vercel.app` (or a custom domain,
+  once one is attached — update this if so).
+- **Redirect URLs** (allow-list, supports `*` wildcards) — currently set to:
+  - `https://my-life-be-like.vercel.app/auth/callback` — production.
+  - `https://my-life-be-like-*-tokos1.vercel.app/auth/callback` — Vercel
+    preview deployments; every PR/CLI deploy gets a fresh URL like
+    `https://my-life-be-like-<hash>-tokos1.vercel.app`, and the wildcard
+    covers all of them without per-deploy reconfiguration.
+  - `http://localhost:3000/auth/callback` and `http://localhost:3003/auth/callback`
+    — local dev (the second is the port this repo's own testing has used;
+    add another entry here if you routinely run `next dev` on a different one).
 
-Replace `starmap` above with whatever the actual Vercel project slug turns
-out to be — it's whatever precedes `.vercel.app` in the URL Vercel assigns
-on first deploy.
+Set via the Management API (`PATCH /v1/projects/{ref}/config/auth`) rather
+than by hand in this instance — the dashboard page is
+**Authentication → URL Configuration** if you need to change it again.
 
 ## Migrations
 
