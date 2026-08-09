@@ -14,6 +14,7 @@ import { createClient } from "@/lib/supabase/server";
 import { goalStateLabel } from "../goal-state-label";
 import { DeleteGoalButton } from "./delete-goal-button";
 import { GoalStateActions } from "./goal-state-actions";
+import { LedgerSection } from "./ledger-section";
 import { MilestonesSection } from "./milestones-section";
 import { ParticipantsSection } from "./participants-section";
 import { TasksSection } from "./tasks-section";
@@ -108,6 +109,38 @@ export default async function GoalDetailPage({
   if (tasksError) {
     throw new Error(tasksError.message);
   }
+
+  const [
+    { data: ledgerEntries, error: ledgerError },
+    { data: pots, error: potsError },
+  ] = await Promise.all([
+    // No user_id filter — RLS is the actual gate, and per Schema.MD,
+    // ledger entries against a shared goal are visible to every
+    // participant, not just whoever wrote them (unlike the pots they
+    // reference, which stay exactly as private as P2.0 promised — see
+    // potNames below, built only from *this* viewer's own pots).
+    supabase
+      .from("ledger_entries")
+      .select("*")
+      .eq("goal_id", id)
+      .is("deleted_at", null)
+      .order("occurred_on", { ascending: false })
+      .limit(10),
+    supabase
+      .from("pots")
+      .select("id, name, currency, is_default")
+      .eq("user_id", userId)
+      .is("deleted_at", null),
+  ]);
+
+  if (ledgerError) {
+    throw new Error(ledgerError.message);
+  }
+  if (potsError) {
+    throw new Error(potsError.message);
+  }
+
+  const potNames = Object.fromEntries((pots ?? []).map((p) => [p.id, p.name]));
 
   // Task owner is limited to the goal owner or a collaborator-role
   // participant — not viewers, and not "anyone with a handle" the way
@@ -303,6 +336,22 @@ export default async function GoalDetailPage({
           assignableUsers={assignableUsers}
           ownerNames={ownerNames}
           initialTasks={tasks ?? []}
+        />
+      </section>
+
+      <section className="flex flex-col gap-2">
+        <h2 className="font-display text-lg">Money</h2>
+        <LedgerSection
+          goal={{
+            id: goal.id,
+            title: goal.title,
+            currency: goal.currency,
+            funding: goal.funding,
+          }}
+          pots={pots ?? []}
+          today={today}
+          initialEntries={ledgerEntries ?? []}
+          potNames={potNames}
         />
       </section>
     </div>

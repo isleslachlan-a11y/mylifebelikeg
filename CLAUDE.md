@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-A life-planning web app for setting goals, planning trips, and tracking progress against budgets and timelines. Individual-first: every object is owned by one person, and sharing is an explicit grant on top. Designed to scale beyond two users to public signup. Currently early-stage (see commit history: `P0.x` = pre-launch phase 0 milestones — auth, shell, and scaffolding are in; the timeline/goals/money features themselves are mostly unbuilt pages).
+A life-planning web app for setting goals, planning trips, and tracking progress against budgets and timelines. Individual-first: every object is owned by one person, and sharing is an explicit grant on top. Designed to scale beyond two users to public signup. Commit history is phase-numbered: `P0.x` = pre-launch scaffolding (auth, shell, design tokens, Supabase clients — done). `P1.x` = goals (current phase — life areas, goal CRUD/lifecycle, participants, milestones, tasks, schedule variance, per-goal mini timeline are built). Money, trips, check-in, and the full cross-goal timeline are still unbuilt stub pages; the latter's requirements are pre-specified in `PHASE-3-REQUIREMENTS.MD` (see Architecture).
 
 ## Stack
 
@@ -18,14 +18,16 @@ npm run build         # production build (also run by CI)
 npm run lint          # eslint
 npm run format         # prettier --write .
 npx tsc --noEmit       # type check (CI runs this after `next typegen`, see below)
+npm test               # vitest run — unit tests
+npm run test:watch     # vitest watch mode
 npm run db:types       # regenerate src/types/database.ts from the live schema; requires SUPABASE_PROJECT_ID
 ```
 
-There is no `npm test` / unit test runner in this repo. Correctness for SQL (schema, triggers, RLS) is checked by running the `supabase/local/*` scripts against a scratch Postgres — see "Database" below. There's also no Storybook; UI states meant for visual review live at `/styleguide` and `/styleguide/llamas` (real routes in the running app, not a separate tool).
+Unit tests (Vitest) are colocated as `*.test.ts` next to the module they cover (e.g. `src/lib/money.test.ts`, `src/lib/timeline/scale.test.ts`, `src/app/(app)/goals/goal-transitions.test.ts`) — run a single file with `npx vitest run path/to/file.test.ts`. `vitest.config.mts` runs everything under `environment: "node"`: pure-logic tests only, no React component tests yet (no `jsdom`/`@testing-library/react` installed — add them per the Next.js Vitest guide in `node_modules/next/dist/docs/` if/when component tests show up). **`npm test` is not yet part of CI** — don't assume a green PR means tests were run; run it yourself. Correctness for SQL (schema, triggers, RLS) is checked separately by running the `supabase/local/*` scripts against a scratch Postgres — see "Database" below. There's also no Storybook; UI states meant for visual review live at `/styleguide` and `/styleguide/llamas` (real routes in the running app, not a separate tool).
 
 CI (`.github/workflows/ci.yml`, runs on every PR) does, in order: `npx next typegen` (needed so `tsc` can see route-generated types like `LayoutProps`/`PageProps`), `tsc --noEmit`, `npm run lint`, `npm run build`. It's a gate only — Vercel's own GitHub integration builds and deploys independently of it, so CI passing/failing doesn't control whether a deploy happens.
 
-To run a single check rather than the whole CI sequence, run that one command above directly — there's no per-file or per-test filtering because there's no test runner.
+To run a single non-test check rather than the whole CI sequence, run that one command above directly — there's no per-file filtering for lint/build.
 
 ## Non-negotiable rules
 
@@ -42,19 +44,29 @@ To run a single check rather than the whole CI sequence, run that one command ab
 **Route groups.** `src/app/(auth)/` (login, signup, onboarding — reachable while unauthenticated) and `src/app/(app)/` (dashboard, timeline, goals, trips, money, check-in, profile — gated). The split is enforced in code, not just by folder naming: `src/lib/supabase/middleware.ts` (invoked from `src/proxy.ts`, see Gotchas) redirects based on auth state and whether a `profiles` row exists yet, using explicit `AUTH_ROUTES`/`UNGATED_ROUTES` allow-lists rather than inferring from the route group.
 
 **Three Supabase client constructors, not one** — pick the one matching where the code runs, don't share instances across requests:
+
 - `src/lib/supabase/client.ts` — browser/Client Components, anon key.
 - `src/lib/supabase/server.ts` — Server Components/route handlers/Server Actions, cookie-based session, created fresh per request.
 - `src/lib/supabase/middleware.ts` — the proxy/middleware layer specifically; the one place session-cookie writes are guaranteed to succeed (Server Components can't write cookies at all — `server.ts`'s `setAll` silently no-ops there by design).
 
+**Server action conventions (`src/app/(app)/goals/`).** Goal, task, milestone, and participant mutations each live in their own `"use server"` file (`actions.ts`, `[id]/tasks-actions.ts`, `[id]/milestones-actions.ts`, `[id]/participants-actions.ts`) and share a `ActionResult<T> = { ok: true; data: T } | { ok: false; error: string }` return shape rather than throwing. Two things repeat across all of them, deliberately:
+
+- A local `getUserId(supabase)` helper calls `auth.getClaims()` and `redirect("/login")` on a missing session — every action runs from an already-gated `(app)` route, so a missing session here means it expired mid-use, not a first visit.
+- Whether an extra `owner_id`/`goal_id` filter gets layered on top of a query is a conscious per-table decision, documented inline at each `getUserId`: it's added where RLS alone is broader than what the UI should allow, and skipped where the RLS policy (e.g. `tasks_write`/`milestones_write` as `app.can_edit_goal(goal_id)`) already is the exact authorization surface wanted. Don't add a filter "for safety" without checking which case applies — an unnecessary one can silently exclude collaborator-owned rows.
+
+The goal lifecycle graph itself lives in `[goals/]goal-transitions.ts`, split out from `actions.ts` purely because a `"use server"` file may only export async functions — `ALLOWED_GOAL_TRANSITIONS` and `transitionLabel` need to be imported as plain values by both the server action and client-rendered buttons. Follow the same split for any future enum-driven state machine (task/milestone status, trip status, etc.).
+
 **The llama message system** (`src/lib/llamas/`) is the app's copy/notification layer: two personas, Derek (blunt, handles red/amber/overdue) and Fluffy (warm, handles green/completions/streaks). `types.ts` defines the `TriggerCode` union and per-trigger params; `registry.ts` maps each trigger to a speaker + priority (the speaker is decided once, centrally — call sites never pick a llama); `copy.ts` holds enumerable copy variants per trigger, viewable side-by-side at `/styleguide/llamas`. Adding a new triggered message means touching all three files. Wiring these triggers to real app events hasn't happened yet — `copy.ts`'s `getLlamaCopy` is what real call sites will eventually use.
 
-**Database.** `Schema.MD` is the narrative source of truth for the data model (24 tables, RLS design, RAG scoring rules, FX handling, what's built vs. not-yet-wired) — read it before touching anything schema-adjacent, it explains *why* the shape is what it is, not just what it is. As of this writing `supabase/migrations/` referenced there doesn't yet exist in this repo (the live Supabase project's schema is ahead of committed migration files); `src/types/database.ts` is already generated against the real schema, so trust that file for current table/column shapes even where migration SQL is absent. `supabase/local/*` are numbered psql scripts (auth shim, smoke test, RLS isolation test, schedule test) for validating schema changes against a throwaway local Postgres before they touch the real project — see the "Running it locally" section of `Schema.MD` for the exact sequence.
+**Database.** `Schema.MD` is the narrative source of truth for the data model (24 tables, RLS design, RAG scoring rules, FX handling, what's built vs. not-yet-wired) — read it before touching anything schema-adjacent, it explains _why_ the shape is what it is, not just what it is. As of this writing `supabase/migrations/` referenced there doesn't yet exist in this repo (the live Supabase project's schema is ahead of committed migration files); `src/types/database.ts` is already generated against the real schema, so trust that file for current table/column shapes even where migration SQL is absent. `supabase/local/*` are numbered psql scripts (auth shim, smoke test, RLS isolation test, schedule test) for validating schema changes against a throwaway local Postgres before they touch the real project — see the "Running it locally" section of `Schema.MD` for the exact sequence.
+
+**Timeline math (`src/lib/timeline/`).** `scale.ts` wraps `d3-scale`'s `scaleTime` into an orientation-agnostic `TimelineScale` (`toPixel`/`toPixelSpan`/`ticks`) that only ever returns numbers — it has no opinion on `left`/`width` vs. `top`/`height`, or on layout at all. `stack.ts` does interval-stacking (packing overlapping date ranges into the minimum number of sub-rows). Both are shared between P1.11's per-goal mini timeline (`src/components/timeline/goal-timeline.tsx`) and whatever the full cross-goal timeline (Phase 3, still unbuilt) ends up using — keep layout/component concerns out of this directory. `PHASE-3-REQUIREMENTS.MD` (binding, derived from a since-deleted spike whose findings are preserved in `SPIKE-NOTES.md`) specifies the constraints that timeline work must satisfy: sticky labels keyed off rendered pixel width not duration, a single timezone-derived `today` computed once per request, bars anchored at their start (not centered), pixel-space (not date-space) collision stacking, range-windowed queries rather than list virtualization, and shared scale/separate-per-orientation layout constants. Read it before touching anything under `timeline/`.
 
 **Deployment** is documented in `DEPLOYMENT.md`: no `vercel.json` (defaults are correct), the three required env vars and why `SUPABASE_SERVICE_ROLE_KEY` must never gain a `NEXT_PUBLIC_` prefix, Supabase Auth redirect allow-list config, and the migration-then-regenerate-types workflow.
 
 ## Gotchas
 
-- This Next.js version deprecated `middleware.ts` in favor of `src/proxy.ts` (exported function named `proxy`, not `middleware`). A `middleware.ts` file is silently never invoked — no build error, no warning in dev output beyond an easy-to-miss deprecation notice — and because it's also at the project root rather than `src/` (this project uses `src/app`), a root-level `proxy.ts` is *also* silently never invoked. Confirm it's live by checking `next build` output for a `ƒ Proxy (Middleware)` line.
+- This Next.js version deprecated `middleware.ts` in favor of `src/proxy.ts` (exported function named `proxy`, not `middleware`). A `middleware.ts` file is silently never invoked — no build error, no warning in dev output beyond an easy-to-miss deprecation notice — and because it's also at the project root rather than `src/` (this project uses `src/app`), a root-level `proxy.ts` is _also_ silently never invoked. Confirm it's live by checking `next build` output for a `ƒ Proxy (Middleware)` line.
 
 <!-- BEGIN:nextjs-agent-rules -->
 

@@ -21,6 +21,7 @@ export const TRIGGER_REGISTRY: Record<TriggerCode, RegistryEntry> = {
   budget_exceeded: { speaker: "derek", priority: 1 },
   goal_undefined: { speaker: "derek", priority: 2 },
   capacity_exceeded: { speaker: "derek", priority: 1 },
+  capacity_shortfall: { speaker: "derek", priority: 1 },
   checkin_due: { speaker: "derek", priority: 2 },
 
   goal_green: { speaker: "fluffy", priority: 3 },

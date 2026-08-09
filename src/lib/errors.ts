@@ -37,6 +37,29 @@ const CONSTRAINT_MESSAGES: Record<string, string> = {
   tasks_estimated_cost_minor_check: "Estimated cost can't be negative.",
   tasks_cost_currency_check: "Currency must be a 3-letter code.",
   profiles_active_goal_limit_check: "Choose a number between 1 and 20.",
+  // Inferred from Postgres's default auto-generated name for an unnamed
+  // column CHECK (`<table>_<column>_check`), matching the pattern every
+  // other entry above follows — not verified against the live schema
+  // (no `pots` migration is committed here to check against, see
+  // CLAUDE.md's Database section). Worst case if either name is wrong:
+  // this falls through to the generic fallback below, same as any other
+  // unmapped constraint, so it's safe to leave in speculatively.
+  pots_currency_check: "Currency must be a 3-letter code.",
+  pots_opening_balance_minor_check: "Opening balance can't be negative.",
+  cashflow_items_currency_check: "Currency must be a 3-letter code.",
+  cashflow_items_label_check: "Label can't be empty.",
+  cashflow_items_amount_minor_check: "Amount must be greater than zero.",
+  // Guessed name for an active_to >= active_from ordering check, following
+  // this file's existing goal_dates_ordered/check_in_period_ordered
+  // naming style rather than Postgres's default (a named, not auto-named,
+  // constraint wouldn't be guessable at all) — even less certain than the
+  // *_check entries above, same safe-fallback reasoning applies.
+  cashflow_items_active_ordered: "End date must be on or after the start date.",
+  fx_rates_base_currency_check: "Currency must be a 3-letter code.",
+  fx_rates_quote_currency_check: "Currency must be a 3-letter code.",
+  fx_rates_rate_check: "Rate must be greater than zero.",
+  ledger_entries_currency_check: "Currency must be a 3-letter code.",
+  ledger_entries_amount_minor_check: "Amount must be greater than zero.",
 };
 
 const FALLBACK_MESSAGE = "Something went wrong — please try again.";

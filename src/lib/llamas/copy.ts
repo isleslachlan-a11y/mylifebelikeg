@@ -1,3 +1,4 @@
+import { formatMoney } from "@/lib/money";
 import type { TriggerCode, TriggerParams } from "./types";
 
 type CopyFn<K extends TriggerCode> = (params: TriggerParams[K]) => string;
@@ -45,6 +46,15 @@ export const COPY_VARIANTS: { [K in TriggerCode]: CopyFn<K>[] } = {
       `Your commitments this month run ${percentOver}% over what you actually have. Something gives eventually.`,
     ({ percentOver }) =>
       `You're ${percentOver}% overcommitted. Not a judgement, just the number.`,
+  ],
+  // Not dismissed-and-gone like the others — call sites render this one
+  // directly from live data on every load rather than persisting it to
+  // llama_messages, precisely so it can't be hidden while still true.
+  capacity_shortfall: [
+    ({ capacityMinor, currency }) =>
+      `Your monthly capacity is ${formatMoney(capacityMinor, currency)} right now. Expenses outrun income — that doesn't fix itself.`,
+    ({ capacityMinor, currency }) =>
+      `${formatMoney(capacityMinor, currency)} a month. Not a rounding error — recurring expenses are ahead of recurring income.`,
   ],
   checkin_due: [
     ({ goalTitle }) =>

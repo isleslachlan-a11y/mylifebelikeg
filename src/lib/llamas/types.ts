@@ -20,6 +20,7 @@ export type TriggerCode =
   | "budget_exceeded"
   | "goal_undefined"
   | "capacity_exceeded"
+  | "capacity_shortfall"
   | "checkin_due"
   | "checkin_streak"
   | "first_goal"
@@ -40,6 +41,14 @@ export type TriggerParams = {
   };
   goal_undefined: { goalTitle: string };
   capacity_exceeded: { percentOver: number };
+  /**
+   * Distinct from capacity_exceeded, which is about active_goal_count
+   * exceeding a user's goal-count limit (v_user_capacity), not money —
+   * an unfortunate name collision from P1.0. This one is P2.1's monthly
+   * cashflow capacity (v_monthly_cashflow) hitting zero or going
+   * negative: income no longer covers recurring expenses.
+   */
+  capacity_shortfall: { capacityMinor: number; currency: string };
   checkin_due: { goalTitle: string };
   checkin_streak: { weeks: number };
   first_goal: { goalTitle: string };

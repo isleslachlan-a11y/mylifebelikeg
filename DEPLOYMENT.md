@@ -10,13 +10,15 @@ job, etc.), not preemptively.
 
 Set these in Vercel → Project → Settings → Environment Variables.
 
-| Variable | Value | Public or secret |
-|---|---|---|
-| `NEXT_PUBLIC_SUPABASE_URL` | `https://<project-ref>.supabase.co` | Public |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | anon/publishable key | Public |
-| `SUPABASE_SERVICE_ROLE_KEY` | service role/secret key | **Secret** |
+| Variable                        | Value                               | Public or secret                                                                                                                         |
+| ------------------------------- | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_SUPABASE_URL`      | `https://<project-ref>.supabase.co` | Public                                                                                                                                   |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | anon/publishable key                | Public                                                                                                                                   |
+| `SUPABASE_SERVICE_ROLE_KEY`     | service role/secret key             | **Secret**                                                                                                                               |
+| `EXCHANGE_RATE_API_KEY`         | key from exchangerate-api.com       | **Secret**                                                                                                                               |
+| `FX_REFRESH_CRON_SECRET`        | any random string you generate      | **Secret** (optional — only needed if an external scheduler calls `/api/fx/refresh`; the in-app "Refresh rates" button works without it) |
 
-Set all three for the Production and Preview environments (Preview so PR
+Set these for the Production and Preview environments (Preview so PR
 deployments work end to end, not just production).
 
 `SUPABASE_PROJECT_ID` does **not** go in Vercel. It's only read by
