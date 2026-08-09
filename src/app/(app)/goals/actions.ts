@@ -5,7 +5,9 @@ import { revalidatePath } from "next/cache";
 
 import { createClient } from "@/lib/supabase/server";
 import { humanizeDbError } from "@/lib/errors";
+import { emitLlamaMessage } from "@/lib/llamas/emit";
 import type { Database } from "@/types/database";
+import { ALLOWED_GOAL_TRANSITIONS, type GoalState } from "./goal-transitions";
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
 
@@ -36,9 +38,9 @@ async function getUserId(supabase: SupabaseServerClient): Promise<string> {
   return auth.claims.sub;
 }
 
-// No `state` here — this phase doesn't build state transitions (see
-// P1.2's notes). Every goal is created and stays 'active' at the database
-// default until a later package adds that flow.
+// No `state` here — createGoal/updateGoal never touch it. Every goal is
+// created and stays 'active' at the database default; moving it through
+// its lifecycle is transitionGoalState's job below, not this form.
 function toRow(input: GoalFormInput) {
   return {
     title: input.title.trim(),
@@ -113,4 +115,127 @@ export async function updateGoal(
   revalidatePath("/goals");
   revalidatePath(`/goals/${id}`);
   redirect(`/goals/${id}`);
+}
+
+/**
+ * Moves a goal through its lifecycle. No database trigger enforces the
+ * transition graph or stamps these timestamps (checked: only
+ * abandoned_needs_reason exists, nothing ties completed_at/archived_at to
+ * state) — this function is the actual gate, not a UI nicety layered on
+ * top of one.
+ */
+export async function transitionGoalState(
+  id: string,
+  targetState: GoalState,
+  abandonReason?: string,
+): Promise<ActionResult> {
+  const supabase = await createClient();
+  const userId = await getUserId(supabase);
+
+  const { data: goal, error: fetchError } = await supabase
+    .from("goals")
+    .select("id, title, state, owner_id")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (fetchError) {
+    return { ok: false, error: humanizeDbError(fetchError) };
+  }
+  if (!goal) {
+    return { ok: false, error: "That goal couldn't be found." };
+  }
+  if (!ALLOWED_GOAL_TRANSITIONS[goal.state].includes(targetState)) {
+    return {
+      ok: false,
+      error: `A ${goal.state} goal can't move to ${targetState}.`,
+    };
+  }
+  if (targetState === "abandoned" && !abandonReason?.trim()) {
+    return { ok: false, error: "Tell us why you're abandoning this goal." };
+  }
+
+  const now = new Date().toISOString();
+  const patch: Pick<
+    Database["public"]["Tables"]["goals"]["Update"],
+    "state" | "completed_at" | "archived_at" | "abandoned_at" | "abandon_reason"
+  > = { state: targetState };
+
+  if (targetState === "active") {
+    // Reopening: clear every end-state field regardless of which one was
+    // actually set — a goal only ever has one meaningfully set at a time,
+    // so unconditionally clearing all three is simpler than branching on
+    // where it's reopening from, and always correct.
+    patch.completed_at = null;
+    patch.archived_at = null;
+    patch.abandoned_at = null;
+    patch.abandon_reason = null;
+  } else if (targetState === "completed") {
+    patch.completed_at = now;
+  } else if (targetState === "archived") {
+    patch.archived_at = now;
+  } else if (targetState === "abandoned") {
+    patch.abandoned_at = now;
+    patch.abandon_reason = abandonReason!.trim();
+  }
+  // 'someday' has no timestamp column — it's a state, not an end state
+  // with a "when" worth recording.
+
+  const { data: updated, error } = await supabase
+    .from("goals")
+    .update(patch)
+    .eq("id", id)
+    .eq("owner_id", userId)
+    .eq("state", goal.state) // lightweight optimistic-concurrency guard
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    return { ok: false, error: humanizeDbError(error) };
+  }
+  if (!updated) {
+    return {
+      ok: false,
+      error: "This goal's state changed elsewhere — refresh and try again.",
+    };
+  }
+
+  // Fluffy celebrates a completion; abandoning gets no llama commentary
+  // on a decision to stop (see P1.3's notes) — every other transition is
+  // silent too, nothing in the registry calls for them.
+  if (targetState === "completed") {
+    await emitLlamaMessage(
+      userId,
+      "goal_completed",
+      { goalTitle: goal.title },
+      { type: "goal", id: goal.id },
+    );
+  }
+
+  revalidatePath("/goals");
+  revalidatePath(`/goals/${id}`);
+  return { ok: true, data: undefined };
+}
+
+/** Always a soft delete (deleted_at) — never a hard DELETE, and distinct from archiving. */
+export async function deleteGoal(id: string): Promise<ActionResult> {
+  const supabase = await createClient();
+  const userId = await getUserId(supabase);
+
+  const { data, error } = await supabase
+    .from("goals")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("id", id)
+    .eq("owner_id", userId)
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    return { ok: false, error: humanizeDbError(error) };
+  }
+  if (!data) {
+    return { ok: false, error: "That goal couldn't be found." };
+  }
+
+  revalidatePath("/goals");
+  redirect("/goals");
 }
