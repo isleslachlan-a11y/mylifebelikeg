@@ -1,0 +1,100 @@
+-- LOCAL ONLY. Verifies automatic task date derivation and the goal cascade.
+-- Run after 001_smoke_test.sql.
+\set ON_ERROR_STOP on
+begin;
+
+-- Existing tasks should have been backfilled by the migration.
+do $$
+declare t record; g record;
+begin
+  select * into g from goals where id = 'bbbbbbbb-0000-0000-0000-000000000001';
+  select * into t from tasks where id = 'cccccccc-0000-0000-0000-000000000002';
+  assert t.computed_start = g.start_date + t.offset_days,
+    format('backfill start wrong: %s vs %s', t.computed_start, g.start_date + t.offset_days);
+  assert t.computed_end = g.start_date + t.offset_days + t.duration_days,
+    format('backfill end wrong: %s', t.computed_end);
+end $$;
+
+-- A new task derives its dates without the app supplying them.
+insert into tasks (id, goal_id, owner_id, title, offset_days, duration_days)
+values ('cccccccc-0000-0000-0000-000000000009', 'bbbbbbbb-0000-0000-0000-000000000001',
+        '11111111-1111-1111-1111-111111111111', 'Give notice at work', 45, 14);
+
+do $$
+declare t record; g record;
+begin
+  select * into g from goals where id = 'bbbbbbbb-0000-0000-0000-000000000001';
+  select * into t from tasks where id = 'cccccccc-0000-0000-0000-000000000009';
+  assert t.computed_start = g.start_date + 45, format('new task start wrong: %s', t.computed_start);
+  assert t.computed_end = g.start_date + 59, format('new task end wrong: %s', t.computed_end);
+end $$;
+
+-- Editing offset or duration re-derives.
+update tasks set offset_days = 50 where id = 'cccccccc-0000-0000-0000-000000000009';
+
+do $$
+declare t record; g record;
+begin
+  select * into g from goals where id = 'bbbbbbbb-0000-0000-0000-000000000001';
+  select * into t from tasks where id = 'cccccccc-0000-0000-0000-000000000009';
+  assert t.computed_start = g.start_date + 50, format('edit did not re-derive: %s', t.computed_start);
+end $$;
+
+-- THE CASCADE: slipping the goal start moves every task underneath it.
+do $$
+declare
+  before_start date;
+  after_start  date;
+  moved        int;
+begin
+  select computed_start into before_start from tasks where id = 'cccccccc-0000-0000-0000-000000000009';
+
+  update goals set start_date = start_date + 30 where id = 'bbbbbbbb-0000-0000-0000-000000000001';
+
+  select computed_start into after_start from tasks where id = 'cccccccc-0000-0000-0000-000000000009';
+  assert after_start = before_start + 30,
+    format('cascade failed: %s -> %s', before_start, after_start);
+
+  -- every task on the goal moved, not just the one
+  select count(*) into moved from tasks
+   where goal_id = 'bbbbbbbb-0000-0000-0000-000000000001'
+     and computed_start = (select start_date from goals where id = 'bbbbbbbb-0000-0000-0000-000000000001') + offset_days;
+  assert moved = 5, format('expected all 5 tasks moved, got %s', moved);
+end $$;
+
+-- Clearing the goal start date nulls task dates rather than inventing them.
+update goals set start_date = null where id = 'bbbbbbbb-0000-0000-0000-000000000001';
+
+do $$
+declare n int;
+begin
+  select count(*) into n from tasks
+   where goal_id = 'bbbbbbbb-0000-0000-0000-000000000001' and computed_start is not null;
+  assert n = 0, format('%s tasks kept stale dates after goal start cleared', n);
+end $$;
+
+-- Restoring it brings them back.
+update goals set start_date = current_date - 100 where id = 'bbbbbbbb-0000-0000-0000-000000000001';
+
+do $$
+declare n int;
+begin
+  select count(*) into n from tasks
+   where goal_id = 'bbbbbbbb-0000-0000-0000-000000000001' and computed_start is null;
+  assert n = 0, format('%s tasks failed to recover dates', n);
+end $$;
+
+-- A zero-duration task is a point, not an error.
+insert into tasks (goal_id, owner_id, title, offset_days, duration_days)
+values ('bbbbbbbb-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111',
+        'Sign the lease', 60, 0);
+
+do $$
+declare t record;
+begin
+  select * into t from tasks where title = 'Sign the lease';
+  assert t.computed_start = t.computed_end, 'zero-duration task should start and end same day';
+end $$;
+
+rollback;
+select 'SCHEDULE DERIVATION VERIFIED' as result;
