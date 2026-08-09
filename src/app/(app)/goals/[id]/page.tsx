@@ -3,7 +3,7 @@ import { notFound, redirect } from "next/navigation";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { formatDate, formatDateRange, relativeDays } from "@/lib/dates";
+import { describeTimeRemaining, formatDate, todayInZone } from "@/lib/dates";
 import { formatMoney } from "@/lib/money";
 import {
   computeScheduleVariance,
@@ -45,6 +45,10 @@ export default async function GoalDetailPage({
   }
   const timezone = profile?.timezone ?? "UTC";
   const isOwner = goal.owner_id === userId;
+  // Computed exactly once per request, right after we know the viewer's
+  // timezone — passed down from here, never re-derived via new Date()
+  // inside a component (P1.10; this is the P0.8 spike's trap).
+  const today = todayInZone(timezone, new Date());
 
   const [
     { data: ownerProfile },
@@ -134,6 +138,13 @@ export default async function GoalDetailPage({
     })),
   });
 
+  // Target dates get the time-remaining treatment (P1.10); start dates
+  // don't — "how long ago it started" isn't a useful urgency signal the
+  // way "how soon it's due" is.
+  const targetDateDisplay = goal.target_date
+    ? describeTimeRemaining(goal.target_date, today)
+    : null;
+
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-8 p-6">
       <div className="flex flex-col gap-3">
@@ -179,26 +190,20 @@ export default async function GoalDetailPage({
         goal.target_date ||
         goal.target_amount_minor != null ? (
           <dl className="flex flex-col gap-1 text-sm">
-            {(goal.start_date || goal.target_date) && (
+            {goal.start_date && (
               <div className="flex flex-wrap items-center gap-2">
-                <dt className="text-muted-foreground">Dates</dt>
+                <dt className="text-muted-foreground">Start</dt>
+                <dd>{formatDate(goal.start_date, timezone)}</dd>
+              </div>
+            )}
+            {targetDateDisplay && (
+              <div className="flex flex-wrap items-center gap-2">
+                <dt className="text-muted-foreground">Target date</dt>
                 <dd>
-                  {goal.start_date && goal.target_date
-                    ? formatDateRange(
-                        goal.start_date,
-                        goal.target_date,
-                        timezone,
-                      )
-                    : formatDate(
-                        (goal.start_date ?? goal.target_date)!,
-                        timezone,
-                      )}
-                  {goal.target_date && (
-                    <span className="text-muted-foreground">
-                      {" "}
-                      ({relativeDays(goal.target_date, timezone)})
-                    </span>
-                  )}
+                  {targetDateDisplay.primary}{" "}
+                  <span className="text-muted-foreground">
+                    ({targetDateDisplay.secondary})
+                  </span>
                 </dd>
               </div>
             )}
@@ -268,7 +273,7 @@ export default async function GoalDetailPage({
         <h2 className="font-display text-lg">Milestones</h2>
         <MilestonesSection
           goalId={goal.id}
-          timezone={timezone}
+          today={today}
           canEdit={canEditGoal}
           initialMilestones={milestones ?? []}
         />
@@ -278,7 +283,7 @@ export default async function GoalDetailPage({
         <h2 className="font-display text-lg">Tasks</h2>
         <TasksSection
           goalId={goal.id}
-          timezone={timezone}
+          today={today}
           canEdit={canEditGoal}
           currentUserId={userId}
           goalStartDate={goal.start_date}

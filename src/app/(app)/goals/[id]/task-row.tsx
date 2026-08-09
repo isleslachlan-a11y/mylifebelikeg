@@ -12,7 +12,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { formatDateRange } from "@/lib/dates";
+import {
+  formatDateRange,
+  formatTimeRemaining,
+  isRelativeTimePrimary,
+} from "@/lib/dates";
 import { cn } from "@/lib/utils";
 import type { Database } from "@/types/database";
 import { TaskEditPanel } from "./task-edit-panel";
@@ -45,7 +49,7 @@ function initials(name: string): string {
 
 export function TaskRow({
   task,
-  timezone,
+  today,
   canEdit,
   ownerName,
   goalId,
@@ -59,7 +63,8 @@ export function TaskRow({
   onDeleted,
 }: {
   task: Task;
-  timezone: string;
+  /** Computed once per request via todayInZone — never new Date() here. */
+  today: string;
   canEdit: boolean;
   ownerName: string;
   goalId: string;
@@ -84,6 +89,26 @@ export function TaskRow({
 
   const style = { transform: CSS.Transform.toString(transform), transition };
   const completed = task.status === "done";
+
+  // "Time remaining" for a range is anchored to computed_end — the
+  // deadline-ish end of it — while the absolute side shows the full
+  // range rather than just that one date, since the range is the actual
+  // context a task row needs (P1.10 applies the threshold rule to task
+  // date ranges, but a range has no single "the date" to pair with).
+  let datePrimary = "Unscheduled";
+  let dateSecondary: string | null = null;
+  if (task.computed_start && task.computed_end) {
+    const { computed_start, computed_end } = task;
+    const range = formatDateRange(computed_start, computed_end, "UTC");
+    const relative = formatTimeRemaining(computed_end, today);
+    if (isRelativeTimePrimary(computed_end, today)) {
+      datePrimary = relative;
+      dateSecondary = range;
+    } else {
+      datePrimary = range;
+      dateSecondary = relative;
+    }
+  }
 
   return (
     <li
@@ -140,9 +165,10 @@ export function TaskRow({
         </span>
 
         <span className="text-muted-foreground hidden shrink-0 text-xs whitespace-nowrap sm:inline">
-          {task.computed_start && task.computed_end
-            ? formatDateRange(task.computed_start, task.computed_end, timezone)
-            : "Unscheduled"}
+          {datePrimary}
+          {dateSecondary && (
+            <span className="opacity-70"> ({dateSecondary})</span>
+          )}
         </span>
 
         {completed ? (

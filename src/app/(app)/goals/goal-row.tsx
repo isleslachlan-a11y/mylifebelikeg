@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 import { Badge } from "@/components/ui/badge";
-import { formatDate, relativeDays } from "@/lib/dates";
+import { describeTimeRemaining } from "@/lib/dates";
 import { formatScheduleVariance } from "@/lib/schedule-variance";
 import type { Database } from "@/types/database";
 import { goalStateLabel } from "./goal-state-label";
@@ -10,19 +10,24 @@ type Goal = Database["public"]["Tables"]["goals"]["Row"];
 
 export function GoalRow({
   goal,
-  timezone,
+  today,
   taskProgress,
   ownerName,
   scheduleVariance,
 }: {
   goal: Goal;
-  timezone: string;
+  /** Computed once per request via todayInZone — never new Date() here. */
+  today: string;
   taskProgress: { done: number; total: number };
   /** Shown for goals in the "Shared with you" section — whose goal this actually is. */
   ownerName?: string;
   /** null means "nothing to show" (no start/target date, no tasks, or still in the grace period) — never render 0%. */
   scheduleVariance?: number | null;
 }) {
+  const targetDisplay = goal.target_date
+    ? describeTimeRemaining(goal.target_date, today)
+    : null;
+
   return (
     <li>
       <Link
@@ -35,10 +40,10 @@ export function GoalRow({
             <Badge variant="secondary" className="h-4 px-1.5 text-[0.65rem]">
               {goalStateLabel(goal.state)}
             </Badge>
-            {goal.target_date ? (
+            {targetDisplay ? (
               <span>
-                {formatDate(goal.target_date, timezone)} ·{" "}
-                {relativeDays(goal.target_date, timezone)}
+                {targetDisplay.primary}{" "}
+                <span className="opacity-70">({targetDisplay.secondary})</span>
               </span>
             ) : (
               <span>No target date</span>

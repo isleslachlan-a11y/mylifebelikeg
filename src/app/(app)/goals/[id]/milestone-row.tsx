@@ -5,7 +5,7 @@ import { Diamond, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { isOverdue, relativeDays } from "@/lib/dates";
+import { formatTimeRemaining, isOverdue } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 import type { Database } from "@/types/database";
 
@@ -13,7 +13,7 @@ type Milestone = Database["public"]["Tables"]["milestones"]["Row"];
 
 export function MilestoneRow({
   milestone,
-  timezone,
+  today,
   canEdit,
   onRename,
   onDueDateChange,
@@ -21,7 +21,8 @@ export function MilestoneRow({
   onDelete,
 }: {
   milestone: Milestone;
-  timezone: string;
+  /** Computed once per request via todayInZone — never new Date() here. */
+  today: string;
   canEdit: boolean;
   onRename: (title: string) => void;
   onDueDateChange: (dueDate: string) => void;
@@ -32,7 +33,7 @@ export function MilestoneRow({
   const [draftTitle, setDraftTitle] = useState(milestone.title);
 
   const completed = milestone.completed_at !== null;
-  const overdue = !completed && isOverdue(milestone.due_date, timezone);
+  const overdue = !completed && isOverdue(milestone.due_date, today);
 
   function commitRename() {
     setIsEditing(false);
@@ -110,13 +111,17 @@ export function MilestoneRow({
         className="h-6 w-36 shrink-0 text-xs"
       />
 
+      {/* Always relative here, not describeTimeRemaining's threshold-swapped
+          text — the date input above is already the persistent absolute
+          display, so this slot's job is just the "how soon" annotation,
+          regardless of distance (P1.10). */}
       <span
         className={cn(
           "shrink-0 text-right text-xs whitespace-nowrap",
           overdue ? "text-rag-red font-medium" : "text-muted-foreground",
         )}
       >
-        {overdue ? "Overdue" : relativeDays(milestone.due_date, timezone)}
+        {formatTimeRemaining(milestone.due_date, today)}
       </span>
 
       {canEdit && (

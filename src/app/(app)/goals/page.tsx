@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { LlamaEmptyState } from "@/components/llama-empty-state";
+import { todayInZone, toGoalOffset } from "@/lib/dates";
 import { computeScheduleVariance } from "@/lib/schedule-variance";
 import { createClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
@@ -33,9 +34,18 @@ const NO_AREA_GROUP: Pick<LifeArea, "id" | "name" | "colour"> = {
 export default async function GoalsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ state?: string; life_area?: string }>;
+  searchParams: Promise<{
+    state?: string;
+    life_area?: string;
+    sort?: string;
+  }>;
 }) {
-  const { state: stateParam, life_area: lifeAreaParam } = await searchParams;
+  const {
+    state: stateParam,
+    life_area: lifeAreaParam,
+    sort: sortParam,
+  } = await searchParams;
+  const useUrgencySort = sortParam === "urgency";
   const stateFilter: GoalState | "all" =
     stateParam === "all"
       ? "all"
@@ -80,7 +90,9 @@ export default async function GoalsPage({
   if (lifeAreasError || !lifeAreas) {
     throw new Error(lifeAreasError?.message ?? "Failed to load life areas.");
   }
-  const timezone = profile?.timezone ?? "UTC";
+  // Computed exactly once per request — passed down, never re-derived via
+  // new Date() inside a component (P1.10; this is the P0.8 spike's trap).
+  const today = todayInZone(profile?.timezone ?? "UTC", new Date());
 
   let goalsQuery = supabase
     .from("goals")
@@ -186,6 +198,31 @@ export default async function GoalsPage({
     },
   ].filter((group) => group.goals.length > 0);
 
+  // "By urgency" (P1.10) flattens across life-area groups AND the
+  // "Shared with you" section into one ordered list — grouping by
+  // category and ordering by "what's due soonest, overdue first" are
+  // different questions, and the whole point of this mode is answering
+  // the second one without the first getting in the way. Goals with no
+  // target date have no urgency signal, so they sort last.
+  const urgencyOrdered = [
+    ...goals.map((goal) => ({
+      goal,
+      ownerName: undefined as string | undefined,
+    })),
+    ...sharedGoals.map((goal) => ({
+      goal,
+      ownerName: goal.owner?.display_name,
+    })),
+  ].sort((a, b) => {
+    const aOffset = a.goal.target_date
+      ? toGoalOffset(a.goal.target_date, today)
+      : Infinity;
+    const bOffset = b.goal.target_date
+      ? toGoalOffset(b.goal.target_date, today)
+      : Infinity;
+    return aOffset - bOffset;
+  });
+
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-6 p-6">
       <div className="flex items-center justify-between gap-4">
@@ -197,8 +234,8 @@ export default async function GoalsPage({
 
       {capacity && (
         <p className="text-muted-foreground text-sm">
-          {capacity.active_goal_count ?? 0} of{" "}
-          {capacity.active_goal_limit ?? 5} active goals
+          {capacity.active_goal_count ?? 0} of {capacity.active_goal_limit ?? 5}{" "}
+          active goals
         </p>
       )}
 
@@ -217,6 +254,19 @@ export default async function GoalsPage({
             </Button>
           }
         />
+      ) : useUrgencySort ? (
+        <ul className="border-subtle bg-surface flex flex-col gap-1 rounded-xl border p-2">
+          {urgencyOrdered.map(({ goal, ownerName }) => (
+            <GoalRow
+              key={goal.id}
+              goal={goal}
+              today={today}
+              ownerName={ownerName}
+              taskProgress={taskProgress[goal.id] ?? { done: 0, total: 0 }}
+              scheduleVariance={scheduleVarianceFor(goal)}
+            />
+          ))}
+        </ul>
       ) : (
         <div className="flex flex-col gap-3">
           {groups.map(({ area, goals: areaGoals }) => (
@@ -241,7 +291,7 @@ export default async function GoalsPage({
                   <GoalRow
                     key={goal.id}
                     goal={goal}
-                    timezone={timezone}
+                    today={today}
                     taskProgress={
                       taskProgress[goal.id] ?? { done: 0, total: 0 }
                     }
@@ -268,7 +318,7 @@ export default async function GoalsPage({
                   <GoalRow
                     key={goal.id}
                     goal={goal}
-                    timezone={timezone}
+                    today={today}
                     ownerName={goal.owner?.display_name}
                     taskProgress={
                       taskProgress[goal.id] ?? { done: 0, total: 0 }

@@ -25,6 +25,14 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { toGoalOffset } from "@/lib/dates";
 import type { Database } from "@/types/database";
 import { AddTaskForm } from "./add-task-form";
 import {
@@ -39,11 +47,30 @@ import { TaskRow } from "./task-row";
 type Task = Database["public"]["Tables"]["tasks"]["Row"];
 type Milestone = Database["public"]["Tables"]["milestones"]["Row"];
 type TaskStatus = Database["public"]["Enums"]["task_status"];
+type SortMode = "manual" | "urgency";
 
 const UNSCHEDULED = "__unscheduled__";
 
 function sortByOrder(tasks: Task[]): Task[] {
   return [...tasks].sort((a, b) => a.sort_order - b.sort_order);
+}
+
+/**
+ * Days remaining ascending, overdue first (P1.10) — anchored to
+ * computed_end, same as the row's own urgency display. Tasks with no
+ * computed_end (unscheduled, or the goal has no start_date) sort last,
+ * since there's no days-remaining signal to rank them by.
+ */
+function sortByUrgency(tasks: Task[], today: string): Task[] {
+  return [...tasks].sort((a, b) => {
+    const aOffset = a.computed_end
+      ? toGoalOffset(a.computed_end, today)
+      : Infinity;
+    const bOffset = b.computed_end
+      ? toGoalOffset(b.computed_end, today)
+      : Infinity;
+    return aOffset - bOffset;
+  });
 }
 
 /**
@@ -56,7 +83,7 @@ function sortByOrder(tasks: Task[]): Task[] {
  */
 export function TasksSection({
   goalId,
-  timezone,
+  today,
   canEdit,
   currentUserId,
   goalStartDate,
@@ -67,7 +94,8 @@ export function TasksSection({
   initialTasks,
 }: {
   goalId: string;
-  timezone: string;
+  /** Computed once per request via todayInZone — never new Date() here. */
+  today: string;
   canEdit: boolean;
   currentUserId: string;
   goalStartDate: string | null;
@@ -82,6 +110,10 @@ export function TasksSection({
   const [newTitle, setNewTitle] = useState("");
   const [isPending, startTransition] = useTransition();
   const quickAddRef = useRef<HTMLInputElement>(null);
+  // "Urgency" flattens across milestone groups into one computed order —
+  // dragging (sort_order) doesn't apply there, since the order isn't
+  // stored, it's derived fresh from today + computed_end each render.
+  const [sortMode, setSortMode] = useState<SortMode>("manual");
 
   // The full "Add task" form is the default now (P1.9); quick-add is the
   // hotkey path, hidden until "t" reveals it — see the effect below.
@@ -221,6 +253,27 @@ export function TasksSection({
     },
   ].filter((g) => g.tasks.length > 0);
 
+  function renderRow(task: Task) {
+    return (
+      <TaskRow
+        key={task.id}
+        task={task}
+        today={today}
+        canEdit={canEdit}
+        ownerName={ownerNames[task.owner_id] ?? "Unknown"}
+        goalId={goalId}
+        goalStartDate={goalStartDate}
+        goalCurrency={goalCurrency}
+        milestones={milestones}
+        assignableUsers={assignableUsers}
+        onToggleComplete={(completed) => handleToggleComplete(task, completed)}
+        onStatusChange={(status) => handleStatusChange(task, status)}
+        onSaved={(saved) => updateOne(task.id, saved)}
+        onDeleted={() => handleDelete(task.id)}
+      />
+    );
+  }
+
   return (
     <div className="flex flex-col gap-3">
       {error && (
@@ -229,8 +282,27 @@ export function TasksSection({
         </p>
       )}
 
-      {groups.length === 0 ? (
+      {tasks.length > 0 && (
+        <Select
+          value={sortMode}
+          onValueChange={(v) => setSortMode(v as SortMode)}
+        >
+          <SelectTrigger size="sm" aria-label="Sort tasks" className="w-36">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="manual">By milestone</SelectItem>
+            <SelectItem value="urgency">By urgency</SelectItem>
+          </SelectContent>
+        </Select>
+      )}
+
+      {tasks.length === 0 ? (
         <p className="text-muted-foreground text-sm">No tasks yet.</p>
+      ) : sortMode === "urgency" ? (
+        <ul className="flex flex-col gap-1.5">
+          {sortByUrgency(tasks, today).map(renderRow)}
+        </ul>
       ) : (
         <div className="flex flex-col gap-4">
           {groups.map((group) => (
@@ -241,26 +313,7 @@ export function TasksSection({
               onReorder={(oldIndex, newIndex) =>
                 handleReorder(group.tasks, oldIndex, newIndex)
               }
-              renderRow={(task) => (
-                <TaskRow
-                  key={task.id}
-                  task={task}
-                  timezone={timezone}
-                  canEdit={canEdit}
-                  ownerName={ownerNames[task.owner_id] ?? "Unknown"}
-                  goalId={goalId}
-                  goalStartDate={goalStartDate}
-                  goalCurrency={goalCurrency}
-                  milestones={milestones}
-                  assignableUsers={assignableUsers}
-                  onToggleComplete={(completed) =>
-                    handleToggleComplete(task, completed)
-                  }
-                  onStatusChange={(status) => handleStatusChange(task, status)}
-                  onSaved={(saved) => updateOne(task.id, saved)}
-                  onDeleted={() => handleDelete(task.id)}
-                />
-              )}
+              renderRow={renderRow}
             />
           ))}
         </div>

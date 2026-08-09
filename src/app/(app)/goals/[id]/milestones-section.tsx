@@ -22,12 +22,13 @@ function sortByDueDate(milestones: Milestone[]): Milestone[] {
 
 export function MilestonesSection({
   goalId,
-  timezone,
+  today,
   canEdit,
   initialMilestones,
 }: {
   goalId: string;
-  timezone: string;
+  /** Computed once per request via todayInZone — never new Date() here. */
+  today: string;
   canEdit: boolean;
   initialMilestones: Milestone[];
 }) {
@@ -158,7 +159,7 @@ export function MilestonesSection({
             <MilestoneRow
               key={m.id}
               milestone={m}
-              timezone={timezone}
+              today={today}
               canEdit={canEdit}
               onRename={(title) => handleRename(m.id, title)}
               onDueDateChange={(dueDate) => handleDueDateChange(m.id, dueDate)}
