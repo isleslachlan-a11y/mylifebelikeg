@@ -34,6 +34,17 @@ describe("humanizeDbError", () => {
     );
   });
 
+  it("maps a task's offset-days-before-goal-start violation", () => {
+    const error = {
+      message:
+        'new row for relation "tasks" violates check constraint "tasks_offset_days_check"',
+      details: "",
+    };
+    expect(humanizeDbError(error)).toBe(
+      "A task can't start before the goal's start date.",
+    );
+  });
+
   it("checks details when the constraint isn't named in message", () => {
     const error = {
       message: "duplicate key value violates unique constraint",

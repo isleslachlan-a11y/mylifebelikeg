@@ -31,6 +31,11 @@ const CONSTRAINT_MESSAGES: Record<string, string> = {
   goals_currency_check: "Currency must be a 3-letter code.",
   goals_target_amount_minor_check: "Target amount can't be negative.",
   goals_title_check: "Title can't be empty.",
+  tasks_title_check: "Title can't be empty.",
+  tasks_duration_days_check: "Duration can't be negative.",
+  tasks_offset_days_check: "A task can't start before the goal's start date.",
+  tasks_estimated_cost_minor_check: "Estimated cost can't be negative.",
+  tasks_cost_currency_check: "Currency must be a 3-letter code.",
 };
 
 const FALLBACK_MESSAGE = "Something went wrong — please try again.";
