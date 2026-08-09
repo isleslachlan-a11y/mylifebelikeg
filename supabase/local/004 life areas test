@@ -1,0 +1,73 @@
+-- LOCAL ONLY. Verifies life_areas: the seeded shape, case-insensitive
+-- per-user name uniqueness, and — the load-bearing assumption behind
+-- src/app/(app)/settings/life-areas/actions.ts's deleteLifeArea — that
+-- soft-deleting an area does NOT clear goals that reference it.
+-- Run after 001_smoke_test.sql.
+\set ON_ERROR_STOP on
+begin;
+
+-- ---- seeded shape --------------------------------------------------------
+do $$
+declare u record;
+begin
+  select * into u from life_areas
+   where user_id = '11111111-1111-1111-1111-111111111111' and is_system;
+  assert u.name = 'Uncategorised', format('system area name wrong: %s', u.name);
+  assert u.sort_order = 99, format('system area sort_order wrong: %s', u.sort_order);
+  assert u.colour = '#6B7280', format('system area colour wrong: %s', u.colour);
+end $$;
+
+-- ---- case-insensitive uniqueness, scoped per user -------------------------
+do $$
+begin
+  begin
+    -- 'Money' is already seeded for this user; differing only in case.
+    insert into life_areas (user_id, name) values
+      ('11111111-1111-1111-1111-111111111111', 'MONEY');
+    assert false, 'case-insensitive duplicate name should have been rejected';
+  exception when unique_violation then
+    null; -- expected: life_areas_user_name_key
+  end;
+end $$;
+
+-- Same name is fine for a different user — uniqueness is per user, not global.
+insert into life_areas (user_id, name) values
+  ('22222222-2222-2222-2222-222222222222', 'Money');
+
+-- A soft-deleted area's name is free again — the unique index is partial
+-- (where deleted_at is null).
+update life_areas set deleted_at = now()
+ where user_id = '11111111-1111-1111-1111-111111111111' and name = 'Money';
+
+insert into life_areas (user_id, name) values
+  ('11111111-1111-1111-1111-111111111111', 'Money');
+
+-- ---- soft-delete does NOT cascade to referencing goals ---------------------
+-- goals.life_area_id is ON DELETE SET NULL, but that FK action only fires
+-- on a real DELETE. This app never hard-deletes life_areas — "delete" is
+-- an UPDATE setting deleted_at, which the FK never sees. If this
+-- assertion ever starts failing, it means ON DELETE SET NULL somehow
+-- started firing on UPDATE, and deleteLifeArea's explicit goal
+-- reassignment (in actions.ts) has become redundant, not necessary.
+do $$
+declare
+  travel_id uuid;
+  after_area uuid;
+begin
+  select id into travel_id from life_areas
+   where user_id = '11111111-1111-1111-1111-111111111111' and name = 'Travel';
+
+  update goals set life_area_id = travel_id
+   where id = 'bbbbbbbb-0000-0000-0000-000000000001';
+
+  update life_areas set deleted_at = now() where id = travel_id;
+
+  select life_area_id into after_area from goals
+   where id = 'bbbbbbbb-0000-0000-0000-000000000001';
+
+  assert after_area = travel_id,
+    'soft-deleting the area should not have cleared the goal''s life_area_id';
+end $$;
+
+rollback;
+select 'LIFE AREAS VERIFIED' as result;

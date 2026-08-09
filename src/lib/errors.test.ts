@@ -23,6 +23,17 @@ describe("humanizeDbError", () => {
     expect(humanizeDbError(error)).toBe("That handle is already taken.");
   });
 
+  it("maps the life-area case-insensitive unique-name violation", () => {
+    const error = {
+      message:
+        'duplicate key value violates unique constraint "life_areas_user_name_key"',
+      details: "Key (user_id, lower(name))=(...) already exists.",
+    };
+    expect(humanizeDbError(error)).toBe(
+      "You already have a life area with that name.",
+    );
+  });
+
   it("checks details when the constraint isn't named in message", () => {
     const error = {
       message: "duplicate key value violates unique constraint",

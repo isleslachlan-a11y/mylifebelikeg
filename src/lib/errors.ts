@@ -24,6 +24,10 @@ const CONSTRAINT_MESSAGES: Record<string, string> = {
   no_self_dependency: "A task can't depend on itself.",
   goal_participants_unique: "That person is already on this goal.",
   check_in_period_ordered: "Check-in period end must be on or after the start.",
+  // Unique index, not a named table constraint (life_areas (user_id, lower(name))
+  // where deleted_at is null) — Postgres still reports it as a "constraint"
+  // violation by the index's name, so it matches CONSTRAINT_NAME_RE the same way.
+  life_areas_user_name_key: "You already have a life area with that name.",
 };
 
 const FALLBACK_MESSAGE = "Something went wrong — please try again.";
