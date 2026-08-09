@@ -9,6 +9,7 @@ import { createClient } from "@/lib/supabase/server";
 import { goalStateLabel } from "../goal-state-label";
 import { DeleteGoalButton } from "./delete-goal-button";
 import { GoalStateActions } from "./goal-state-actions";
+import { ParticipantsSection } from "./participants-section";
 
 export default async function GoalDetailPage({
   params,
@@ -37,13 +38,37 @@ export default async function GoalDetailPage({
     notFound();
   }
   const timezone = profile?.timezone ?? "UTC";
+  const isOwner = goal.owner_id === userId;
+
+  const [
+    { data: ownerProfile },
+    { data: participants, error: participantsError },
+  ] = await Promise.all([
+    supabase
+      .from("profiles")
+      .select("handle, display_name")
+      .eq("id", goal.owner_id)
+      .single(),
+    supabase
+      .from("goal_participants")
+      .select(
+        "id, user_id, role, profile:profiles!goal_participants_user_id_fkey(handle, display_name)",
+      )
+      .eq("goal_id", id)
+      .is("removed_at", null)
+      .order("joined_at", { ascending: true }),
+  ]);
+
+  if (participantsError) {
+    throw new Error(participantsError.message);
+  }
 
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-8 p-6">
       <div className="flex flex-col gap-3">
         <div className="flex items-start justify-between gap-4">
           <h1 className="font-display text-3xl">{goal.title}</h1>
-          {goal.owner_id === userId && (
+          {isOwner && (
             <Button asChild variant="outline" size="sm">
               <Link href={`/goals/${goal.id}/edit`}>Edit</Link>
             </Button>
@@ -137,7 +162,7 @@ export default async function GoalDetailPage({
           </div>
         )}
 
-        {goal.owner_id === userId && (
+        {isOwner && (
           <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
             <GoalStateActions goalId={goal.id} state={goal.state} />
             <DeleteGoalButton goalId={goal.id} goalTitle={goal.title} />
@@ -145,10 +170,22 @@ export default async function GoalDetailPage({
         )}
       </div>
 
-      {/* Placeholders — milestones, tasks, and participants are later packages. */}
+      {ownerProfile && (
+        <section className="flex flex-col gap-2">
+          <h2 className="font-display text-lg">Participants</h2>
+          <ParticipantsSection
+            goalId={goal.id}
+            currentUserId={userId}
+            isOwner={isOwner}
+            owner={ownerProfile}
+            initialParticipants={participants ?? []}
+          />
+        </section>
+      )}
+
+      {/* Placeholders — milestones and tasks are later packages. */}
       <PlaceholderSection title="Milestones" />
       <PlaceholderSection title="Tasks" />
-      <PlaceholderSection title="Participants" />
     </div>
   );
 }

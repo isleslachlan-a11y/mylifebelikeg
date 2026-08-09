@@ -11,10 +11,13 @@ export function GoalRow({
   goal,
   timezone,
   taskProgress,
+  ownerName,
 }: {
   goal: Goal;
   timezone: string;
   taskProgress: { done: number; total: number };
+  /** Shown for goals in the "Shared with you" section — whose goal this actually is. */
+  ownerName?: string;
 }) {
   return (
     <li>
@@ -36,6 +39,7 @@ export function GoalRow({
             ) : (
               <span>No target date</span>
             )}
+            {ownerName && <span>Owned by {ownerName}</span>}
           </div>
         </div>
         {taskProgress.total > 0 && (

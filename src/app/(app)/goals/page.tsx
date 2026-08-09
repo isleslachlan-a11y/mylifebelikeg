@@ -78,23 +78,48 @@ export default async function GoalsPage({
     goalsQuery = goalsQuery.eq("life_area_id", lifeAreaParam);
   }
 
-  const { data: goals, error: goalsError } = await goalsQuery;
+  // Goals shared with this user (P1.4) — .neq("owner_id", ...) combined
+  // with goals_select's RLS (owner OR active participant) is exactly
+  // "goals I can see that I don't own", so this reuses RLS as the source
+  // of truth instead of separately querying goal_participants and
+  // re-deriving the same answer. No life_area filter here: a shared
+  // goal's life_area_id points at the *owner's* life_areas row, which
+  // this viewer's own life-area grouping has no use for.
+  let sharedGoalsQuery = supabase
+    .from("goals")
+    .select("*, owner:profiles!goals_owner_id_fkey(display_name)")
+    .neq("owner_id", userId)
+    .is("deleted_at", null)
+    .order("target_date", { ascending: true, nullsFirst: false });
+
+  if (stateFilter !== "all") {
+    sharedGoalsQuery = sharedGoalsQuery.eq("state", stateFilter);
+  }
+
+  const [
+    { data: goals, error: goalsError },
+    { data: sharedGoals, error: sharedGoalsError },
+  ] = await Promise.all([goalsQuery, sharedGoalsQuery]);
+
   if (goalsError || !goals) {
     throw new Error(goalsError?.message ?? "Failed to load goals.");
+  }
+  if (sharedGoalsError || !sharedGoals) {
+    throw new Error(
+      sharedGoalsError?.message ?? "Failed to load shared goals.",
+    );
   }
 
   // Task progress ("7/12"), tallied in JS from a flat query — same
   // pattern as P1.1's goal counts. No progress view exists yet and the
   // per-user row count is small.
+  const allGoalIds = [...goals, ...sharedGoals].map((g) => g.id);
   const taskProgress: Record<string, { done: number; total: number }> = {};
-  if (goals.length > 0) {
+  if (allGoalIds.length > 0) {
     const { data: tasks, error: tasksError } = await supabase
       .from("tasks")
       .select("goal_id, status")
-      .in(
-        "goal_id",
-        goals.map((g) => g.id),
-      )
+      .in("goal_id", allGoalIds)
       .is("deleted_at", null);
 
     if (tasksError) {
@@ -134,7 +159,7 @@ export default async function GoalsPage({
 
       <GoalsFilters lifeAreas={lifeAreas} />
 
-      {groups.length === 0 ? (
+      {groups.length === 0 && sharedGoals.length === 0 ? (
         <LlamaEmptyState
           speaker="fluffy"
           title="No goals here yet"
@@ -178,6 +203,33 @@ export default async function GoalsPage({
               </ul>
             </details>
           ))}
+
+          {sharedGoals.length > 0 && (
+            <details
+              open
+              className="border-subtle bg-surface rounded-xl border"
+            >
+              <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm font-medium select-none">
+                Shared with you
+                <span className="text-muted-foreground font-normal">
+                  {sharedGoals.length}
+                </span>
+              </summary>
+              <ul className="flex flex-col gap-1 px-2 pb-2">
+                {sharedGoals.map((goal) => (
+                  <GoalRow
+                    key={goal.id}
+                    goal={goal}
+                    timezone={timezone}
+                    ownerName={goal.owner?.display_name}
+                    taskProgress={
+                      taskProgress[goal.id] ?? { done: 0, total: 0 }
+                    }
+                  />
+                ))}
+              </ul>
+            </details>
+          )}
         </div>
       )}
     </div>
