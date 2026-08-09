@@ -5,6 +5,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatDate, formatDateRange, relativeDays } from "@/lib/dates";
 import { formatMoney } from "@/lib/money";
+import {
+  computeScheduleVariance,
+  formatScheduleVariance,
+} from "@/lib/schedule-variance";
 import { createClient } from "@/lib/supabase/server";
 import { goalStateLabel } from "../goal-state-label";
 import { DeleteGoalButton } from "./delete-goal-button";
@@ -120,6 +124,16 @@ export default async function GoalDetailPage({
     ownerNames[p.user_id] = p.profile.display_name;
   }
 
+  const scheduleVariance = computeScheduleVariance({
+    createdAt: goal.created_at,
+    startDate: goal.start_date,
+    targetDate: goal.target_date,
+    tasks: (tasks ?? []).map((t) => ({
+      durationDays: t.duration_days,
+      status: t.status,
+    })),
+  });
+
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-8 p-6">
       <div className="flex flex-col gap-3">
@@ -146,6 +160,16 @@ export default async function GoalDetailPage({
           )}
           {goal.kind === "trip" && <Badge variant="outline">Trip</Badge>}
         </div>
+
+        {/* A neutral number with direction, not a RAG colour — only the
+            schedule dimension has real data until Phase 4, and a colour
+            drawn from a third of the model would teach you to distrust
+            it (P1.7). Null means genuinely nothing to show, not 0%. */}
+        {scheduleVariance != null && (
+          <p className="text-muted-foreground text-sm">
+            {formatScheduleVariance(scheduleVariance)}
+          </p>
+        )}
 
         {goal.description && (
           <p className="text-muted-foreground text-sm">{goal.description}</p>

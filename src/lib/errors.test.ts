@@ -34,6 +34,15 @@ describe("humanizeDbError", () => {
     );
   });
 
+  it("maps the active-goal-limit range violation", () => {
+    const error = {
+      message:
+        'new row for relation "profiles" violates check constraint "profiles_active_goal_limit_check"',
+      details: "",
+    };
+    expect(humanizeDbError(error)).toBe("Choose a number between 1 and 20.");
+  });
+
   it("maps a task's offset-days-before-goal-start violation", () => {
     const error = {
       message:

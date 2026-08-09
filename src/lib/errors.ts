@@ -36,6 +36,7 @@ const CONSTRAINT_MESSAGES: Record<string, string> = {
   tasks_offset_days_check: "A task can't start before the goal's start date.",
   tasks_estimated_cost_minor_check: "Estimated cost can't be negative.",
   tasks_cost_currency_check: "Currency must be a 3-letter code.",
+  profiles_active_goal_limit_check: "Choose a number between 1 and 20.",
 };
 
 const FALLBACK_MESSAGE = "Something went wrong — please try again.";

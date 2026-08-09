@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { Badge } from "@/components/ui/badge";
 import { formatDate, relativeDays } from "@/lib/dates";
+import { formatScheduleVariance } from "@/lib/schedule-variance";
 import type { Database } from "@/types/database";
 import { goalStateLabel } from "./goal-state-label";
 
@@ -12,12 +13,15 @@ export function GoalRow({
   timezone,
   taskProgress,
   ownerName,
+  scheduleVariance,
 }: {
   goal: Goal;
   timezone: string;
   taskProgress: { done: number; total: number };
   /** Shown for goals in the "Shared with you" section — whose goal this actually is. */
   ownerName?: string;
+  /** null means "nothing to show" (no start/target date, no tasks, or still in the grace period) — never render 0%. */
+  scheduleVariance?: number | null;
 }) {
   return (
     <li>
@@ -40,6 +44,9 @@ export function GoalRow({
               <span>No target date</span>
             )}
             {ownerName && <span>Owned by {ownerName}</span>}
+            {scheduleVariance != null && (
+              <span>{formatScheduleVariance(scheduleVariance)}</span>
+            )}
           </div>
         </div>
         {taskProgress.total > 0 && (

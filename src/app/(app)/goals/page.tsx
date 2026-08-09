@@ -3,10 +3,12 @@ import { redirect } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { LlamaEmptyState } from "@/components/llama-empty-state";
+import { computeScheduleVariance } from "@/lib/schedule-variance";
 import { createClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
 import { GoalsFilters } from "./goals-filters";
 import { GoalRow } from "./goal-row";
+import { LlamaMessagesFeed } from "./llama-messages-feed";
 
 type Goal = Database["public"]["Tables"]["goals"]["Row"];
 type LifeArea = Database["public"]["Tables"]["life_areas"]["Row"];
@@ -48,16 +50,32 @@ export default async function GoalsPage({
   }
   const userId = auth.claims.sub;
 
-  const [{ data: profile }, { data: lifeAreas, error: lifeAreasError }] =
-    await Promise.all([
-      supabase.from("profiles").select("timezone").eq("id", userId).single(),
-      supabase
-        .from("life_areas")
-        .select("*")
-        .eq("user_id", userId)
-        .is("deleted_at", null)
-        .order("sort_order", { ascending: true }),
-    ]);
+  const [
+    { data: profile },
+    { data: lifeAreas, error: lifeAreasError },
+    { data: capacity },
+    { data: llamaMessages },
+  ] = await Promise.all([
+    supabase.from("profiles").select("timezone").eq("id", userId).single(),
+    supabase
+      .from("life_areas")
+      .select("*")
+      .eq("user_id", userId)
+      .is("deleted_at", null)
+      .order("sort_order", { ascending: true }),
+    supabase
+      .from("v_user_capacity")
+      .select("active_goal_count, active_goal_limit")
+      .eq("user_id", userId)
+      .maybeSingle(),
+    supabase
+      .from("llama_messages")
+      .select("id, speaker, body")
+      .eq("user_id", userId)
+      .is("dismissed_at", null)
+      .order("created_at", { ascending: false })
+      .limit(5),
+  ]);
 
   if (lifeAreasError || !lifeAreas) {
     throw new Error(lifeAreasError?.message ?? "Failed to load life areas.");
@@ -110,15 +128,22 @@ export default async function GoalsPage({
     );
   }
 
-  // Task progress ("7/12"), tallied in JS from a flat query — same
-  // pattern as P1.1's goal counts. No progress view exists yet and the
-  // per-user row count is small.
+  // Task progress ("7/12") and schedule variance inputs, tallied in JS
+  // from one flat query — same pattern as P1.1's goal counts. No progress
+  // view exists yet and the per-user row count is small.
   const allGoalIds = [...goals, ...sharedGoals].map((g) => g.id);
   const taskProgress: Record<string, { done: number; total: number }> = {};
+  const tasksByGoal: Record<
+    string,
+    {
+      durationDays: number;
+      status: Database["public"]["Enums"]["task_status"];
+    }[]
+  > = {};
   if (allGoalIds.length > 0) {
     const { data: tasks, error: tasksError } = await supabase
       .from("tasks")
-      .select("goal_id, status")
+      .select("goal_id, status, duration_days")
       .in("goal_id", allGoalIds)
       .is("deleted_at", null);
 
@@ -131,7 +156,20 @@ export default async function GoalsPage({
       if (task.status === "done") {
         progress.done += 1;
       }
+      (tasksByGoal[task.goal_id] ??= []).push({
+        durationDays: task.duration_days,
+        status: task.status,
+      });
     }
+  }
+
+  function scheduleVarianceFor(goal: Goal): number | null {
+    return computeScheduleVariance({
+      createdAt: goal.created_at,
+      startDate: goal.start_date,
+      targetDate: goal.target_date,
+      tasks: tasksByGoal[goal.id] ?? [],
+    });
   }
 
   const groups: {
@@ -156,6 +194,15 @@ export default async function GoalsPage({
           <Link href="/goals/new">New goal</Link>
         </Button>
       </div>
+
+      {capacity && (
+        <p className="text-muted-foreground text-sm">
+          {capacity.active_goal_count ?? 0} of{" "}
+          {capacity.active_goal_limit ?? 5} active goals
+        </p>
+      )}
+
+      <LlamaMessagesFeed messages={llamaMessages ?? []} />
 
       <GoalsFilters lifeAreas={lifeAreas} />
 
@@ -198,6 +245,7 @@ export default async function GoalsPage({
                     taskProgress={
                       taskProgress[goal.id] ?? { done: 0, total: 0 }
                     }
+                    scheduleVariance={scheduleVarianceFor(goal)}
                   />
                 ))}
               </ul>
@@ -225,6 +273,7 @@ export default async function GoalsPage({
                     taskProgress={
                       taskProgress[goal.id] ?? { done: 0, total: 0 }
                     }
+                    scheduleVariance={scheduleVarianceFor(goal)}
                   />
                 ))}
               </ul>
