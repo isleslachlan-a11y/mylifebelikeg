@@ -2089,6 +2089,45 @@ export type Database = {
         };
         Relationships: [];
       };
+      v_monthly_cashflow: {
+        Row: {
+          base_currency: string | null;
+          expense_monthly_minor: number | null;
+          income_monthly_minor: number | null;
+          monthly_capacity_minor: number | null;
+          user_id: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "cashflow_items_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "cashflow_items_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "v_allocation_summary";
+            referencedColumns: ["user_id"];
+          },
+          {
+            foreignKeyName: "cashflow_items_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "v_monthly_capacity";
+            referencedColumns: ["user_id"];
+          },
+          {
+            foreignKeyName: "cashflow_items_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "v_user_capacity";
+            referencedColumns: ["user_id"];
+          },
+        ];
+      };
       v_pot_balances: {
         Row: {
           balance_minor: number | null;
