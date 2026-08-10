@@ -13,6 +13,7 @@ import {
 import { createClient } from "@/lib/supabase/server";
 import { goalStateLabel } from "../goal-state-label";
 import { DeleteGoalButton } from "./delete-goal-button";
+import { FundingSection } from "./funding-section";
 import { GoalStateActions } from "./goal-state-actions";
 import { LedgerSection } from "./ledger-section";
 import { MilestonesSection } from "./milestones-section";
@@ -64,7 +65,7 @@ export default async function GoalDetailPage({
     supabase
       .from("goal_participants")
       .select(
-        "id, user_id, role, profile:profiles!goal_participants_user_id_fkey(handle, display_name)",
+        "id, user_id, role, pledged_amount_minor, pledged_currency, monthly_allocation_minor, pot_id, profile:profiles!goal_participants_user_id_fkey(handle, display_name)",
       )
       .eq("goal_id", id)
       .is("removed_at", null)
@@ -74,6 +75,17 @@ export default async function GoalDetailPage({
   if (participantsError) {
     throw new Error(participantsError.message);
   }
+
+  // participants-actions.ts never inserts a role='owner' row, but
+  // funding-actions.ts's setPledge does create one the first time an
+  // owner pledges to their own goal (see its own comment) — so this list
+  // can now legitimately contain one. ParticipantsSection renders the
+  // owner separately (from ownerProfile, below) and assumes everything
+  // in `participants` is a collaborator/viewer; filter the owner row out
+  // here rather than let it show up twice.
+  const nonOwnerParticipants = (participants ?? []).filter(
+    (p) => p.role !== "owner",
+  );
 
   // Mirrors app.can_edit_goal (owner OR a collaborator-role active
   // participant) — milestones_write's RLS is the real gate, but the UI
@@ -139,6 +151,61 @@ export default async function GoalDetailPage({
   if (potsError) {
     throw new Error(potsError.message);
   }
+
+  const [
+    { data: goalFunding, error: fundingError },
+    { data: affordability, error: affordabilityError },
+    { data: allocationSummary, error: allocationError },
+  ] = await Promise.all([
+    supabase.from("v_goal_funding").select("*").eq("goal_id", id).maybeSingle(),
+    // Only ever has a row for save_toward goals — spend_against and
+    // unfunded goals return none, by the view's own design (see
+    // supabase/local/006_affordability_test), not an error to handle here.
+    supabase
+      .from("v_goal_affordability")
+      .select("*")
+      .eq("goal_id", id)
+      .maybeSingle(),
+    // This viewer's own capacity, not the goal's — v_allocation_summary
+    // is keyed by user_id (every participant has their own pots/base
+    // currency/capacity), and P2.4's brief frames this as "the reality
+    // check" for whoever's about to set an allocation, not a goal-level
+    // figure.
+    supabase
+      .from("v_allocation_summary")
+      .select("*")
+      .eq("user_id", userId)
+      .maybeSingle(),
+  ]);
+
+  if (fundingError) {
+    throw new Error(fundingError.message);
+  }
+  if (affordabilityError) {
+    throw new Error(affordabilityError.message);
+  }
+  if (allocationError) {
+    throw new Error(allocationError.message);
+  }
+
+  const myPledgeRow = (participants ?? []).find((p) => p.user_id === userId);
+  const myPledge = myPledgeRow
+    ? {
+        pledgedAmountMinor: myPledgeRow.pledged_amount_minor,
+        pledgedCurrency: myPledgeRow.pledged_currency,
+        monthlyAllocationMinor: myPledgeRow.monthly_allocation_minor,
+        potId: myPledgeRow.pot_id,
+      }
+    : null;
+  const otherPledges = (participants ?? [])
+    .filter((p) => p.user_id !== userId)
+    .map((p) => ({
+      userId: p.user_id,
+      displayName: p.profile.display_name,
+      pledgedAmountMinor: p.pledged_amount_minor,
+      pledgedCurrency: p.pledged_currency,
+      monthlyAllocationMinor: p.monthly_allocation_minor,
+    }));
 
   const potNames = Object.fromEntries((pots ?? []).map((p) => [p.id, p.name]));
 
@@ -308,7 +375,7 @@ export default async function GoalDetailPage({
             currentUserId={userId}
             isOwner={isOwner}
             owner={ownerProfile}
-            initialParticipants={participants ?? []}
+            initialParticipants={nonOwnerParticipants}
           />
         </section>
       )}
@@ -338,6 +405,31 @@ export default async function GoalDetailPage({
           initialTasks={tasks ?? []}
         />
       </section>
+
+      {goal.funding !== "none" && (
+        <section className="flex flex-col gap-2">
+          <h2 className="font-display text-lg">Funding</h2>
+          <FundingSection
+            goalId={goal.id}
+            goalCurrency={goal.currency}
+            goalFunding={goal.funding}
+            createdAt={goal.created_at}
+            startDate={goal.start_date}
+            targetDate={goal.target_date}
+            today={today}
+            pots={(pots ?? []).map((p) => ({
+              id: p.id,
+              name: p.name,
+              is_default: p.is_default,
+            }))}
+            myPledge={myPledge}
+            otherPledges={otherPledges}
+            funding={goalFunding}
+            affordability={affordability}
+            allocationSummary={allocationSummary}
+          />
+        </section>
+      )}
 
       <section className="flex flex-col gap-2">
         <h2 className="font-display text-lg">Money</h2>

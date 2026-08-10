@@ -56,6 +56,15 @@ export const COPY_VARIANTS: { [K in TriggerCode]: CopyFn<K>[] } = {
     ({ capacityMinor, currency }) =>
       `${formatMoney(capacityMinor, currency)} a month. Not a rounding error — recurring expenses are ahead of recurring income.`,
   ],
+  // Also rendered live, never persisted — see capacity_shortfall above.
+  // A warning, not a block (P2.4 brief): this fires alongside whatever
+  // action just pushed allocation over capacity, it never prevents it.
+  allocation_over_capacity: [
+    ({ overMinor, currency }) =>
+      `You've allocated ${formatMoney(overMinor, currency)} more than your monthly capacity covers. Real money, recorded anyway — something eventually has to give.`,
+    ({ overMinor, currency }) =>
+      `That's ${formatMoney(overMinor, currency)} over what you actually have free each month. Not stopping you — just saying it plainly.`,
+  ],
   checkin_due: [
     ({ goalTitle }) =>
       `${goalTitle} hasn't had a check-in this week. Two minutes, that's the whole ask.`,

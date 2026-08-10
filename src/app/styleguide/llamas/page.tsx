@@ -25,6 +25,7 @@ const EXAMPLES: { [K in TriggerCode]: TriggerParams[K] } = {
   goal_undefined: { goalTitle: "Someday: New Car" },
   capacity_exceeded: { percentOver: 15 },
   capacity_shortfall: { capacityMinor: -12000, currency: "AUD" },
+  allocation_over_capacity: { overMinor: 35000, currency: "AUD" },
   checkin_due: { goalTitle: "Move to London" },
   goal_green: { goalTitle: "Wedding Fund" },
   goal_completed: { goalTitle: "Pay off credit card" },

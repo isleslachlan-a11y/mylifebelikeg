@@ -26,19 +26,61 @@ export type ScheduleVarianceTask = {
   status: ScheduleVarianceTaskStatus;
 };
 
-export type ScheduleVarianceInput = {
+export type ElapsedInput = {
   /** goals.created_at (timestamptz). */
   createdAt: string;
   /** goals.start_date (bare date), or null. */
   startDate: string | null;
   /** goals.target_date (bare date), or null. */
   targetDate: string | null;
-  /** Every non-deleted task on the goal, any status. */
-  tasks: ScheduleVarianceTask[];
   now?: Date;
 };
 
+export type ScheduleVarianceInput = ElapsedInput & {
+  /** Every non-deleted task on the goal, any status. */
+  tasks: ScheduleVarianceTask[];
+};
+
 const GRACE_PERIOD_MS = 14 * 24 * 60 * 60 * 1000;
+
+/**
+ * The grace-period + elapsed% half of `app.compute_goal_rag()` — shared
+ * by computeScheduleVariance below (the schedule dimension) and
+ * budget-variance.ts's computeBudgetVariance (the budget dimension, P2.5):
+ * both dimensions read the identical "how far through the goal's
+ * timeline are we" expression in the SQL, so it's transcribed once here
+ * and reused rather than duplicated with a real risk of the two copies
+ * drifting apart from each other (on top of the existing risk of drifting
+ * from the SQL itself, noted in this file's top comment).
+ *
+ * Returns null under the same conditions the rest of this file does:
+ * still within the 14-day grace period, or missing a start or target date.
+ */
+export function computeElapsedPercent(input: ElapsedInput): number | null {
+  const now = input.now ?? new Date();
+
+  const createdAt = new Date(input.createdAt);
+  if (createdAt.getTime() > now.getTime() - GRACE_PERIOD_MS) {
+    return null;
+  }
+
+  if (!input.startDate || !input.targetDate) {
+    return null;
+  }
+
+  // Postgres `current_date` runs in the database session's timezone,
+  // which is UTC on this project (confirmed live) — not the viewer's
+  // profile timezone. toISOString().slice(0, 10) is UTC by definition,
+  // so it matches current_date exactly rather than approximating it.
+  const today = now.toISOString().slice(0, 10);
+
+  if (input.targetDate <= input.startDate) {
+    return 100;
+  }
+  const totalDays = toGoalOffset(input.targetDate, input.startDate);
+  const elapsedDays = toGoalOffset(today, input.startDate);
+  return Math.max(0, Math.min(100, (elapsedDays / totalDays) * 100));
+}
 
 /**
  * Returns null — never 0 — whenever `app.compute_goal_rag` itself
@@ -53,14 +95,8 @@ const GRACE_PERIOD_MS = 14 * 24 * 60 * 60 * 1000;
 export function computeScheduleVariance(
   input: ScheduleVarianceInput,
 ): number | null {
-  const now = input.now ?? new Date();
-
-  const createdAt = new Date(input.createdAt);
-  if (createdAt.getTime() > now.getTime() - GRACE_PERIOD_MS) {
-    return null;
-  }
-
-  if (!input.startDate || !input.targetDate) {
+  const elapsedPct = computeElapsedPercent(input);
+  if (elapsedPct == null) {
     return null;
   }
 
@@ -78,21 +114,6 @@ export function computeScheduleVariance(
   const taskDone = counted
     .filter((t) => t.status === "done")
     .reduce((sum, t) => sum + Math.max(t.durationDays, 1), 0);
-
-  // Postgres `current_date` runs in the database session's timezone,
-  // which is UTC on this project (confirmed live) — not the viewer's
-  // profile timezone. toISOString().slice(0, 10) is UTC by definition,
-  // so it matches current_date exactly rather than approximating it.
-  const today = now.toISOString().slice(0, 10);
-
-  let elapsedPct: number;
-  if (input.targetDate <= input.startDate) {
-    elapsedPct = 100;
-  } else {
-    const totalDays = toGoalOffset(input.targetDate, input.startDate);
-    const elapsedDays = toGoalOffset(today, input.startDate);
-    elapsedPct = Math.max(0, Math.min(100, (elapsedDays / totalDays) * 100));
-  }
 
   const progressPct = (taskDone / taskTotal) * 100;
   return round2(progressPct - elapsedPct);

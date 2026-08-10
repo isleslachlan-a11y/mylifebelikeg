@@ -21,6 +21,7 @@ export type TriggerCode =
   | "goal_undefined"
   | "capacity_exceeded"
   | "capacity_shortfall"
+  | "allocation_over_capacity"
   | "checkin_due"
   | "checkin_streak"
   | "first_goal"
@@ -49,6 +50,14 @@ export type TriggerParams = {
    * negative: income no longer covers recurring expenses.
    */
   capacity_shortfall: { capacityMinor: number; currency: string };
+  /**
+   * P2.4's reality check: v_allocation_summary.over_allocated — total
+   * monthly_allocation_minor across every goal this user pledges to
+   * exceeds their monthly cashflow capacity. A warning, never a block
+   * (P2.4 brief, verbatim) — rendered live from real data on every load,
+   * same as capacity_shortfall, not persisted to llama_messages.
+   */
+  allocation_over_capacity: { overMinor: number; currency: string };
   checkin_due: { goalTitle: string };
   checkin_streak: { weeks: number };
   first_goal: { goalTitle: string };
