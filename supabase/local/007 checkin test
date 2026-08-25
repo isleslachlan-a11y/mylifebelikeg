@@ -1,0 +1,185 @@
+-- LOCAL ONLY. Verifies the check-in engine.
+-- Run after 001_smoke_test.sql.
+\set ON_ERROR_STOP on
+begin;
+
+-- ---- period derivation -------------------------------------------------------
+do $$
+declare p record; v_today date;
+begin
+  v_today := app.today_for_user('11111111-1111-1111-1111-111111111111');
+  select * into p from app.current_checkin_period('11111111-1111-1111-1111-111111111111');
+
+  assert p.period_end - p.period_start = 6, format('period should span 7 days, got %s', p.period_end - p.period_start + 1);
+  assert p.period_end <= v_today, 'period must not end in the future';
+  assert p.period_end > v_today - 7, 'period end should be within the last week';
+  -- default check_in_day is 7 (Sunday)
+  assert extract(isodow from p.period_end) = 7,
+    format('period should end on Sunday, ended on isodow %s', extract(isodow from p.period_end));
+end $$;
+
+-- Changing check_in_day moves the boundary.
+update profiles set check_in_day = 3 where id = '11111111-1111-1111-1111-111111111111';
+do $$
+declare p record;
+begin
+  select * into p from app.current_checkin_period('11111111-1111-1111-1111-111111111111');
+  assert extract(isodow from p.period_end) = 3,
+    format('expected Wednesday boundary, got isodow %s', extract(isodow from p.period_end));
+end $$;
+update profiles set check_in_day = 7 where id = '11111111-1111-1111-1111-111111111111';
+
+-- ---- ensure_current_checkin is idempotent -----------------------------------
+do $$
+declare a uuid; b uuid; n int;
+begin
+  a := app.ensure_current_checkin('11111111-1111-1111-1111-111111111111');
+  b := app.ensure_current_checkin('11111111-1111-1111-1111-111111111111');
+  assert a = b, 'ensure_current_checkin must not create duplicates';
+
+  select count(*) into n from check_ins
+   where user_id = '11111111-1111-1111-1111-111111111111'
+     and period_start = (select period_start from app.current_checkin_period('11111111-1111-1111-1111-111111111111'));
+  assert n = 1, format('expected exactly 1 current check-in, got %s', n);
+end $$;
+
+-- ---- streaks -----------------------------------------------------------------
+-- The smoke test seeded three check-ins; clear them for a controlled test.
+delete from goal_ratings;
+delete from check_ins where user_id = '11111111-1111-1111-1111-111111111111';
+
+-- Four consecutive submitted weeks ending with the last completed period.
+do $$
+declare p record; i int;
+begin
+  select * into p from app.current_checkin_period('11111111-1111-1111-1111-111111111111');
+  for i in 1..4 loop
+    insert into check_ins (user_id, period_start, period_end, capacity_rating, submitted_at)
+    values ('11111111-1111-1111-1111-111111111111',
+            p.period_start - (7 * i), p.period_end - (7 * i), 4, now());
+  end loop;
+end $$;
+
+do $$
+declare s int;
+begin
+  s := app.checkin_streak('11111111-1111-1111-1111-111111111111');
+  assert s = 4, format('expected streak of 4, got %s', s);
+end $$;
+
+-- A gap breaks it: remove the second-most-recent week.
+do $$
+declare p record;
+begin
+  select * into p from app.current_checkin_period('11111111-1111-1111-1111-111111111111');
+  delete from check_ins
+   where user_id = '11111111-1111-1111-1111-111111111111'
+     and period_start = p.period_start - 14;
+end $$;
+
+do $$
+declare s int;
+begin
+  s := app.checkin_streak('11111111-1111-1111-1111-111111111111');
+  assert s = 1, format('a gap should break the streak back to 1, got %s', s);
+end $$;
+
+-- An unsubmitted current period does not break the streak.
+do $$
+declare v_id uuid; s int;
+begin
+  v_id := app.ensure_current_checkin('11111111-1111-1111-1111-111111111111');
+  s := app.checkin_streak('11111111-1111-1111-1111-111111111111');
+  assert s = 1, format('draft current check-in should not break streak, got %s', s);
+end $$;
+
+-- ---- divergence --------------------------------------------------------------
+do $$
+declare v_id uuid; d record;
+begin
+  select id into v_id from check_ins
+   where user_id = '11111111-1111-1111-1111-111111111111'
+     and period_start = (select period_start from app.current_checkin_period('11111111-1111-1111-1111-111111111111'));
+
+  insert into goal_ratings (check_in_id, goal_id, user_id, score) values
+    (v_id, 'bbbbbbbb-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 5),
+    (v_id, 'bbbbbbbb-0000-0000-0000-000000000001', '22222222-2222-2222-2222-222222222222', 2);
+
+  update check_ins set submitted_at = now() where id = v_id;
+
+  select * into d from v_rating_divergence
+   where goal_id = 'bbbbbbbb-0000-0000-0000-000000000001';
+
+  assert d.spread = 3, format('expected spread of 3, got %s', d.spread);
+  assert d.rater_count = 2, format('expected 2 raters, got %s', d.rater_count);
+  assert d.mean_score = 3.50, format('expected mean 3.5, got %s', d.mean_score);
+end $$;
+
+-- ---- snapshot on submit ------------------------------------------------------
+do $$
+declare n int; s record;
+begin
+  select count(*) into n from rag_snapshots
+   where goal_id = 'bbbbbbbb-0000-0000-0000-000000000001';
+  assert n >= 1, 'submitting a check-in should have written a RAG snapshot';
+
+  select * into s from rag_snapshots
+   where goal_id = 'bbbbbbbb-0000-0000-0000-000000000001'
+   order by computed_at desc limit 1;
+  assert s.overall_status is not null, 'snapshot missing overall status';
+  assert s.inputs ? 'today', 'snapshot inputs should record the resolved date';
+end $$;
+
+-- ---- override expiry on submit -----------------------------------------------
+do $$
+declare v_id uuid; v_override rag_status; p record;
+begin
+  select * into p from app.current_checkin_period('11111111-1111-1111-1111-111111111111');
+
+  -- An override set BEFORE the current period should be cleared on submit.
+  update goals
+     set rag_override = 'green', rag_override_reason = 'external delay',
+         rag_override_at = (p.period_start - 3)::timestamptz,
+         rag_override_expires_at = now() + interval '14 days'
+   where id = 'bbbbbbbb-0000-0000-0000-000000000001';
+
+  insert into check_ins (user_id, period_start, period_end)
+  values ('11111111-1111-1111-1111-111111111111', p.period_start + 7, p.period_end + 7)
+  returning id into v_id;
+
+  insert into goal_ratings (check_in_id, goal_id, user_id, score)
+  values (v_id, 'bbbbbbbb-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 3);
+
+  update check_ins set submitted_at = now() where id = v_id;
+
+  select rag_override into v_override from goals where id = 'bbbbbbbb-0000-0000-0000-000000000001';
+  assert v_override is null, 'a stale override should be cleared when a new check-in is submitted';
+end $$;
+
+-- ---- limit suggestions -------------------------------------------------------
+-- Not enough history yields nothing rather than a bad guess.
+do $$
+declare n int;
+begin
+  select count(*) into n from app.suggest_goal_limit_change('22222222-2222-2222-2222-222222222222');
+  assert n = 0, 'should not suggest with fewer than 3 capacity ratings';
+end $$;
+
+-- Three low-capacity weeks should suggest lowering.
+do $$
+declare s record; p record; i int;
+begin
+  delete from check_ins where user_id = '22222222-2222-2222-2222-222222222222';
+  select * into p from app.current_checkin_period('22222222-2222-2222-2222-222222222222');
+  for i in 1..3 loop
+    insert into check_ins (user_id, period_start, period_end, capacity_rating, submitted_at)
+    values ('22222222-2222-2222-2222-222222222222',
+            p.period_start - (7 * i), p.period_end - (7 * i), 1, now());
+  end loop;
+
+  select * into s from app.suggest_goal_limit_change('22222222-2222-2222-2222-222222222222');
+  assert s.direction = 'lower', format('expected lower, got %s', s.direction);
+end $$;
+
+rollback;
+select 'CHECK-IN ENGINE VERIFIED' as result;

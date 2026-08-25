@@ -119,3 +119,53 @@ end $$;
 
 reset role;
 select 'RLS ISOLATION VERIFIED' as result;
+
+-- =============================================================================
+-- VIEWS. Added after 0012 -- views bypassed RLS entirely until security_invoker
+-- was set, and the original version of this test never exercised them.
+-- =============================================================================
+set role authenticated;
+select set_config('request.jwt.claim.sub', '22222222-2222-2222-2222-222222222222', false);
+
+do $$
+declare n int; v bigint;
+begin
+  -- B must not see A's pot through the view.
+  select count(*) into n from v_pot_balances;
+  assert n = 1, format('LEAK: B sees %s pots through v_pot_balances', n);
+
+  select count(*) into n from v_pot_balances
+   where user_id = '11111111-1111-1111-1111-111111111111';
+  assert n = 0, 'LEAK: A''s pot balance visible to B through the view';
+
+  -- B must not see A's income/expense-derived capacity.
+  select coalesce(max(monthly_capacity_minor), 0) into v
+    from v_monthly_capacity where user_id = '11111111-1111-1111-1111-111111111111';
+  assert v = 0, format('LEAK: A''s capacity (%s) visible to B', v);
+
+  -- Funding is visible only for the shared goal.
+  select count(*) into n from v_goal_funding;
+  assert n = 1, format('LEAK: B sees %s goals through v_goal_funding', n);
+
+  select count(*) into n from v_user_capacity
+   where user_id = '11111111-1111-1111-1111-111111111111' and active_goal_count > 0;
+  assert n = 0, 'LEAK: A''s goal count visible to B';
+
+  -- Timeline items: only the shared goal's items.
+  select count(*) into n from v_timeline_items
+   where goal_id <> 'bbbbbbbb-0000-0000-0000-000000000001';
+  assert n = 0, format('LEAK: B sees %s timeline items from goals they cannot view', n);
+end $$;
+
+-- Anonymous must see nothing through views either.
+select set_config('request.jwt.claim.sub', '', false);
+do $$
+declare n int;
+begin
+  select count(*) into n from v_pot_balances;   assert n = 0, 'LEAK: anon sees pot balances';
+  select count(*) into n from v_goal_funding;   assert n = 0, 'LEAK: anon sees goal funding';
+  select count(*) into n from v_timeline_items; assert n = 0, 'LEAK: anon sees timeline items';
+end $$;
+
+reset role;
+select 'VIEW ISOLATION VERIFIED' as result;
