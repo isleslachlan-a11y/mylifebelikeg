@@ -2343,6 +2343,40 @@ export type Database = {
           },
         ];
       };
+      v_rating_divergence: {
+        Row: {
+          goal_id: string | null;
+          max_score: number | null;
+          mean_score: number | null;
+          min_score: number | null;
+          period_start: string | null;
+          rater_count: number | null;
+          spread: number | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "goal_ratings_goal_id_fkey";
+            columns: ["goal_id"];
+            isOneToOne: false;
+            referencedRelation: "goals";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "goal_ratings_goal_id_fkey";
+            columns: ["goal_id"];
+            isOneToOne: false;
+            referencedRelation: "v_goal_affordability";
+            referencedColumns: ["goal_id"];
+          },
+          {
+            foreignKeyName: "goal_ratings_goal_id_fkey";
+            columns: ["goal_id"];
+            isOneToOne: false;
+            referencedRelation: "v_goal_funding";
+            referencedColumns: ["goal_id"];
+          },
+        ];
+      };
       v_timeline_items: {
         Row: {
           ends_on: string | null;
