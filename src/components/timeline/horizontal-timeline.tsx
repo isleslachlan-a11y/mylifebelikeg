@@ -46,6 +46,14 @@ const ASSUMED_VIEWPORT_PX = 900;
 export type HorizontalTimelineScale = {
   toPixel(date: Date): number;
   ticks(count?: number): Date[];
+  /**
+   * Zoom-derived, anchor-independent (P3.8) — `LaneGridRow` memoises
+   * `assignSubRows` on this instead of the whole `scale` object, since
+   * `scale` gets a new identity on every pan (anchor change) even though
+   * relative pixel distances between two dates — and therefore
+   * `assignSubRows`'s row assignments — only ever change when zoom does.
+   */
+  pxPerDay: number;
 };
 
 export type HorizontalTimelineProps = {
@@ -278,7 +286,7 @@ function LaneGridRow({
   onNavigate,
 }: {
   lane: Lane<DisplayTimelineItem>;
-  scale: { toPixel(date: Date): number };
+  scale: HorizontalTimelineScale;
   rangePx: number;
   today: string;
   collapsed: boolean;
@@ -290,13 +298,26 @@ function LaneGridRow({
   const goalBands = lane.items.filter((item) => item.item_type === "goal");
   const stackableItems = lane.items.filter((item) => item.item_type !== "goal");
 
+  // P3.8: keyed on pxPerDay (zoom-derived), not the whole `scale` object
+  // — `scale` gets a new identity on every pan (anchor change) even
+  // though `assignSubRows`'s row assignments are anchor-invariant at a
+  // fixed zoom (relative pixel distances between two dates depend only
+  // on px/day and the dates themselves, never on where the domain
+  // starts). Measured before fixing this: negligible at realistic scale
+  // (PERF-NOTES.md) — done anyway since it's free and correct, and it's
+  // headroom for Phase 5's critical-path highlighting adding another
+  // per-render pass on top of this one.
   const { subRows, maxDepth } = useMemo(
     () => assignSubRows(stackableItems.map(toStackableItem), scale),
     // stackableItems is re-derived from `lane.items` every render; keying
     // off `lane.items` directly keeps this from recomputing on renders
-    // where the lane object itself hasn't changed.
+    // where the lane object itself hasn't changed. `scale` itself is
+    // deliberately not a dependency (see above) — only its zoom-derived
+    // `pxPerDay` is, since that's the only part of `scale` this
+    // computation's *output* actually depends on. toPixel is still read
+    // fresh from the current `scale` closure each time this does run.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [lane.items, scale],
+    [lane.items, scale.pxPerDay],
   );
 
   const rowCount = Math.max(maxDepth, 1);
@@ -333,7 +354,36 @@ function LaneGridRow({
 
       <div
         className="border-subtle relative border-b"
-        style={{ height: bodyHeight, width: rangePx }}
+        // content-visibility: auto (P3.8): lets the browser skip layout/
+        // paint for a lane body scrolled off the page, without a
+        // windowing rewrite (the brief's own suggested cheap lever) —
+        // real here in a way it wouldn't be inside vertical-timeline.tsx's
+        // single expanded lane, whose own tall scroll area rarely if ever
+        // fully leaves *its own* scroll viewport while actively being
+        // scrolled through (considered and deliberately not applied
+        // there for that reason).
+        //
+        // `containIntrinsicSize` avoids layout shift when a lane's
+        // content is skipped — safe here specifically because
+        // `bodyHeight`/`rangePx` are already fixed by this component's
+        // own math, not derived from the children being skipped.
+        //
+        // Checked against R1 before adding: `content-visibility: auto`
+        // implies `contain: paint`, which clips descendants to this
+        // div's own box — the same *mechanism* `overflow-hidden` uses,
+        // which is exactly what broke the spike's sticky labels. The
+        // difference here: `ItemLabel`'s sticky span only ever needs to
+        // render somewhere within `[0, rangePx]` — this div's own full
+        // width — never outside it, since that's the entire scrollable
+        // domain, not a viewport-sized window into it. There's nothing
+        // for the clip to cut off. (Not verified in a real browser —
+        // see PERF-NOTES.md.)
+        style={{
+          height: bodyHeight,
+          width: rangePx,
+          contentVisibility: "auto",
+          containIntrinsicSize: `${rangePx}px ${bodyHeight}px`,
+        }}
       >
         {!collapsed && (
           <>

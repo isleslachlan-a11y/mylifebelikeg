@@ -36,6 +36,14 @@ const DAY_MS = 86_400_000;
 export type VerticalTimelineScale = {
   toPixel(date: Date): number;
   ticks(count?: number): Date[];
+  /**
+   * Zoom-derived, anchor-independent (P3.8) — `VerticalLaneSection`
+   * memoises `assignSubRows` on this instead of the whole `scale`
+   * object, same reasoning as `horizontal-timeline.tsx`'s identical
+   * comment: `scale` gets a new identity on every pan even though
+   * `assignSubRows`'s row assignments only ever change with zoom.
+   */
+  pxPerDay: number;
 };
 
 export type VerticalTimelineProps = {
@@ -158,14 +166,19 @@ function VerticalLaneSection({
   const goalBands = lane.items.filter((item) => item.item_type === "goal");
   const stackableItems = lane.items.filter((item) => item.item_type !== "goal");
 
+  // P3.8: keyed on pxPerDay, not the whole `scale` object — see
+  // horizontal-timeline.tsx's identical fix and comment for the full
+  // reasoning (anchor-invariance of assignSubRows's output at fixed
+  // zoom) and PERF-NOTES.md for what this was actually measured to cost
+  // before being fixed.
   const { subRows, maxDepth } = useMemo(
     () => assignSubRows(stackableItems.map(toStackableItem), scale),
-    // See horizontal-timeline.tsx's identical note: stackableItems is
-    // re-derived from lane.items every render, so keying off lane.items
-    // directly (rather than the fresh array) avoids recomputing on
-    // renders where the lane itself hasn't actually changed.
+    // stackableItems is re-derived from lane.items every render, so
+    // keying off lane.items directly (rather than the fresh array)
+    // avoids recomputing on renders where the lane itself hasn't
+    // actually changed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [lane.items, scale],
+    [lane.items, scale.pxPerDay],
   );
 
   const columnCount = Math.max(maxDepth, 1);
