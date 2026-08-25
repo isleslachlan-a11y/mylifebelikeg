@@ -62,8 +62,11 @@ export type HorizontalTimelineProps = {
   financialHorizon: string | null;
   collapsedLaneIds: Set<string>;
   onToggleLane: (laneId: string) => void;
-  selectedItemId: string | null;
-  onSelectItem: (itemId: string) => void;
+  /** The currently hovered/focused item (P3.7) — drives the ring highlight and which item `TimelineView` renders a hover card for. Not a click-selection; click navigates instead (`onNavigate`). */
+  hoveredItemId: string | null;
+  onHoverItem: (itemId: string | null) => void;
+  /** Navigates to the item's goal — every item type resolves to `goal_id` (P3.7: "click an item -> navigate to its goal detail page"). */
+  onNavigate: (goalId: string) => void;
 };
 
 /**
@@ -99,6 +102,14 @@ export type HorizontalTimelineProps = {
  * tooltip-only (native `title`), matching `goal-timeline.tsx`'s existing
  * "no inline text on tiny shapes" precedent; the brief's own examples
  * (a task, a multi-year goal) never mention milestones either.
+ *
+ * P3.7: every bar/diamond/band is a `<button>` with `onMouseEnter`/
+ * `onFocus` -> `onHoverItem` (drives the ring highlight here and
+ * `TimelineView`'s hover card — hover and keyboard focus are treated as
+ * the same signal, so the card is reachable without a mouse) and
+ * `onClick` -> `onNavigate(goal_id)`. No drag, no resize, no inline
+ * editing anywhere in this file by design — editing happens on the goal
+ * detail page this navigates to.
  */
 export function HorizontalTimeline({
   lanes,
@@ -108,8 +119,9 @@ export function HorizontalTimeline({
   financialHorizon,
   collapsedLaneIds,
   onToggleLane,
-  selectedItemId,
-  onSelectItem,
+  hoveredItemId,
+  onHoverItem,
+  onNavigate,
 }: HorizontalTimelineProps) {
   return (
     <div
@@ -138,8 +150,9 @@ export function HorizontalTimeline({
             today={today}
             collapsed={collapsedLaneIds.has(lane.laneId)}
             onToggle={() => onToggleLane(lane.laneId)}
-            selectedItemId={selectedItemId}
-            onSelectItem={onSelectItem}
+            hoveredItemId={hoveredItemId}
+            onHoverItem={onHoverItem}
+            onNavigate={onNavigate}
           />
         ))}
 
@@ -260,8 +273,9 @@ function LaneGridRow({
   today,
   collapsed,
   onToggle,
-  selectedItemId,
-  onSelectItem,
+  hoveredItemId,
+  onHoverItem,
+  onNavigate,
 }: {
   lane: Lane<DisplayTimelineItem>;
   scale: { toPixel(date: Date): number };
@@ -269,8 +283,9 @@ function LaneGridRow({
   today: string;
   collapsed: boolean;
   onToggle: () => void;
-  selectedItemId: string | null;
-  onSelectItem: (itemId: string) => void;
+  hoveredItemId: string | null;
+  onHoverItem: (itemId: string | null) => void;
+  onNavigate: (goalId: string) => void;
 }) {
   const goalBands = lane.items.filter((item) => item.item_type === "goal");
   const stackableItems = lane.items.filter((item) => item.item_type !== "goal");
@@ -331,19 +346,29 @@ function LaneGridRow({
                 MIN_BAR_WIDTH_PX,
               );
               const status = classifyItemStatus(goal, today);
+              const hovered = hoveredItemId === goal.item_id;
               return (
-                <div
+                <button
                   key={goal.item_id}
+                  type="button"
                   title={goal.title}
+                  onMouseEnter={() => onHoverItem(goal.item_id)}
+                  onMouseLeave={() => onHoverItem(null)}
+                  onFocus={() => onHoverItem(goal.item_id)}
+                  onBlur={() => onHoverItem(null)}
+                  onClick={() => onNavigate(goal.goal_id)}
                   className={cn(
-                    "absolute top-0 z-0 h-full",
+                    // No overflow-hidden (R1) — ItemLabel below is
+                    // sometimes `position: sticky`.
+                    "absolute top-0 z-0 h-full text-left",
                     GOAL_BAND_OPACITY,
                     statusFillClass(status),
+                    hovered && "ring-foreground ring-2 ring-offset-1",
                   )}
                   style={{ left, width }}
                 >
                   <ItemLabel title={goal.title} itemWidthPx={width} />
-                </div>
+                </button>
               );
             })}
 
@@ -352,7 +377,7 @@ function LaneGridRow({
               const end = new Date(item.ends_on);
               const row = subRows.get(item.item_id) ?? 0;
               const status = classifyItemStatus(item, today);
-              const selected = selectedItemId === item.item_id;
+              const hovered = hoveredItemId === item.item_id;
               const top =
                 LANE_PADDING_Y_PX + row * (BAR_HEIGHT_PX + ROW_GAP_PX);
 
@@ -367,11 +392,15 @@ function LaneGridRow({
                     key={item.item_id}
                     type="button"
                     title={item.title}
-                    onClick={() => onSelectItem(item.item_id)}
+                    onMouseEnter={() => onHoverItem(item.item_id)}
+                    onMouseLeave={() => onHoverItem(null)}
+                    onFocus={() => onHoverItem(item.item_id)}
+                    onBlur={() => onHoverItem(null)}
+                    onClick={() => onNavigate(item.goal_id)}
                     className={cn(
                       "absolute z-10 rotate-45",
                       statusFillClass(status),
-                      selected && "ring-foreground ring-2 ring-offset-1",
+                      hovered && "ring-foreground ring-2 ring-offset-1",
                     )}
                     style={{
                       left: cx - DIAMOND_SIZE_PX / 2,
@@ -395,14 +424,18 @@ function LaneGridRow({
                   key={item.item_id}
                   type="button"
                   title={item.title}
-                  onClick={() => onSelectItem(item.item_id)}
+                  onMouseEnter={() => onHoverItem(item.item_id)}
+                  onMouseLeave={() => onHoverItem(null)}
+                  onFocus={() => onHoverItem(item.item_id)}
+                  onBlur={() => onHoverItem(null)}
+                  onClick={() => onNavigate(item.goal_id)}
                   className={cn(
                     // No overflow-hidden here (R1) — this button contains
                     // ItemLabel, which is sometimes `position: sticky`;
                     // clipping it would defeat the whole point.
                     "absolute z-10 rounded",
                     statusFillClass(status),
-                    selected && "ring-foreground ring-2 ring-offset-1",
+                    hovered && "ring-foreground ring-2 ring-offset-1",
                   )}
                   style={{ left, width, top, height: BAR_HEIGHT_PX }}
                 >

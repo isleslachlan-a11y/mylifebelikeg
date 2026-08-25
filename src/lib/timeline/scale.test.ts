@@ -132,6 +132,35 @@ describe("createScale", () => {
     const year = createScale("year", ANCHOR, 1000);
     expect(day.pxPerDay).toBeGreaterThan(year.pxPerDay);
   });
+
+  it.each(ZOOM_LEVELS)(
+    "centres on the same anchor regardless of zoom (%s)",
+    (zoom) => {
+      const scale = createScale(zoom, ANCHOR, 1000);
+      const [start, end] = scale.domain;
+      const midpointMs = (start.getTime() + end.getTime()) / 2;
+      expect(midpointMs).toBeCloseTo(ANCHOR.getTime(), -2);
+    },
+  );
+
+  it("keeps the same date centred when zooming from year straight to day (P3.7's acceptance case)", () => {
+    // This is really just createScale's centre-on-anchor behaviour (see
+    // the test above) exercised the way TimelineView's zoom control
+    // actually uses it: change only `zoom`, never touch `anchor`. There
+    // is deliberately no special-cased "preserve the centre" logic
+    // anywhere in this codebase — the centre is preserved because
+    // nothing ever moves it, not because something puts it back.
+    const year = createScale("year", ANCHOR, 1000);
+    const day = createScale("day", ANCHOR, 1000);
+
+    const yearMidpoint =
+      (year.domain[0].getTime() + year.domain[1].getTime()) / 2;
+    const dayMidpoint = (day.domain[0].getTime() + day.domain[1].getTime()) / 2;
+
+    expect(yearMidpoint).toBeCloseTo(ANCHOR.getTime(), -2);
+    expect(dayMidpoint).toBeCloseTo(ANCHOR.getTime(), -2);
+    expect(dayMidpoint).toBeCloseTo(yearMidpoint, -2);
+  });
 });
 
 describe("widthForItem", () => {

@@ -53,8 +53,11 @@ export type VerticalTimelineProps = {
   financialHorizon: string | null;
   collapsedLaneIds: Set<string>;
   onToggleLane: (laneId: string) => void;
-  selectedItemId: string | null;
-  onSelectItem: (itemId: string) => void;
+  /** The currently hovered/focused item (P3.7) — drives the ring highlight and which item `TimelineView` renders a hover card for. Not a click-selection; click navigates instead (`onNavigate`). */
+  hoveredItemId: string | null;
+  onHoverItem: (itemId: string | null) => void;
+  /** Navigates to the item's goal — every item type resolves to `goal_id` (P3.7: "click an item -> navigate to its goal detail page"). */
+  onNavigate: (goalId: string) => void;
 };
 
 /**
@@ -90,6 +93,11 @@ export type VerticalTimelineProps = {
  * with the horizontal layout (`groupIntoLanes`/`classifyItemStatus` too,
  * but those are data-shaping, not layout) — no orientation prop, no
  * shared layout constants, per R6 and the P3.5 brief.
+ *
+ * P3.7: same `onHoverItem`/`onNavigate` split as `horizontal-timeline.tsx`
+ * — hover/focus previews (and drives `TimelineView`'s hover card), click
+ * navigates. No drag, no resize, no inline editing here either; editing
+ * happens on the goal detail page this navigates to.
  */
 export function VerticalTimeline({
   lanes,
@@ -99,8 +107,9 @@ export function VerticalTimeline({
   financialHorizon,
   collapsedLaneIds,
   onToggleLane,
-  selectedItemId,
-  onSelectItem,
+  hoveredItemId,
+  onHoverItem,
+  onNavigate,
 }: VerticalTimelineProps) {
   return (
     <div className="flex flex-col gap-2 pb-[env(safe-area-inset-bottom)]">
@@ -114,8 +123,9 @@ export function VerticalTimeline({
           financialHorizon={financialHorizon}
           collapsed={collapsedLaneIds.has(lane.laneId)}
           onToggle={() => onToggleLane(lane.laneId)}
-          selectedItemId={selectedItemId}
-          onSelectItem={onSelectItem}
+          hoveredItemId={hoveredItemId}
+          onHoverItem={onHoverItem}
+          onNavigate={onNavigate}
         />
       ))}
     </div>
@@ -130,8 +140,9 @@ function VerticalLaneSection({
   financialHorizon,
   collapsed,
   onToggle,
-  selectedItemId,
-  onSelectItem,
+  hoveredItemId,
+  onHoverItem,
+  onNavigate,
 }: {
   lane: Lane<DisplayTimelineItem>;
   scale: VerticalTimelineScale;
@@ -140,8 +151,9 @@ function VerticalLaneSection({
   financialHorizon: string | null;
   collapsed: boolean;
   onToggle: () => void;
-  selectedItemId: string | null;
-  onSelectItem: (itemId: string) => void;
+  hoveredItemId: string | null;
+  onHoverItem: (itemId: string | null) => void;
+  onNavigate: (goalId: string) => void;
 }) {
   const goalBands = lane.items.filter((item) => item.item_type === "goal");
   const stackableItems = lane.items.filter((item) => item.item_type !== "goal");
@@ -226,18 +238,29 @@ function VerticalLaneSection({
                   MIN_BAR_LENGTH_PX,
                 );
                 const status = classifyItemStatus(goal, today);
+                const hovered = hoveredItemId === goal.item_id;
                 return (
-                  <div
+                  <button
                     key={goal.item_id}
+                    type="button"
+                    title={goal.title}
+                    onMouseEnter={() => onHoverItem(goal.item_id)}
+                    onMouseLeave={() => onHoverItem(null)}
+                    onFocus={() => onHoverItem(goal.item_id)}
+                    onBlur={() => onHoverItem(null)}
+                    onClick={() => onNavigate(goal.goal_id)}
                     className={cn(
-                      "absolute left-0 z-0 w-full",
+                      // No overflow-hidden (R1) — ItemLabel below is
+                      // sometimes `position: sticky`.
+                      "absolute left-0 z-0 w-full text-left",
                       GOAL_BAND_OPACITY,
                       statusFillClass(status),
+                      hovered && "ring-foreground ring-2 ring-offset-1",
                     )}
                     style={{ top, height }}
                   >
                     <ItemLabel title={goal.title} itemHeightPx={height} />
-                  </div>
+                  </button>
                 );
               })}
 
@@ -247,7 +270,7 @@ function VerticalLaneSection({
                 const column = subRows.get(item.item_id) ?? 0;
                 const left = column * (COLUMN_WIDTH_PX + COLUMN_GAP_PX);
                 const status = classifyItemStatus(item, today);
-                const selected = selectedItemId === item.item_id;
+                const hovered = hoveredItemId === item.item_id;
 
                 if (item.item_type === "milestone") {
                   // Centred on its date — same one exception to
@@ -260,11 +283,15 @@ function VerticalLaneSection({
                       key={item.item_id}
                       type="button"
                       title={item.title}
-                      onClick={() => onSelectItem(item.item_id)}
+                      onMouseEnter={() => onHoverItem(item.item_id)}
+                      onMouseLeave={() => onHoverItem(null)}
+                      onFocus={() => onHoverItem(item.item_id)}
+                      onBlur={() => onHoverItem(null)}
+                      onClick={() => onNavigate(item.goal_id)}
                       className={cn(
                         "absolute z-10 rotate-45",
                         statusFillClass(status),
-                        selected && "ring-foreground ring-2 ring-offset-1",
+                        hovered && "ring-foreground ring-2 ring-offset-1",
                       )}
                       style={{
                         left: cx - DIAMOND_SIZE_PX / 2,
@@ -289,14 +316,18 @@ function VerticalLaneSection({
                     key={item.item_id}
                     type="button"
                     title={item.title}
-                    onClick={() => onSelectItem(item.item_id)}
+                    onMouseEnter={() => onHoverItem(item.item_id)}
+                    onMouseLeave={() => onHoverItem(null)}
+                    onFocus={() => onHoverItem(item.item_id)}
+                    onBlur={() => onHoverItem(null)}
+                    onClick={() => onNavigate(item.goal_id)}
                     className={cn(
                       // No overflow-hidden (R1) — ItemLabel below is
                       // sometimes `position: sticky`; clipping it here
                       // would defeat the point.
                       "absolute z-10 rounded",
                       statusFillClass(status),
-                      selected && "ring-foreground ring-2 ring-offset-1",
+                      hovered && "ring-foreground ring-2 ring-offset-1",
                     )}
                     style={{
                       left,

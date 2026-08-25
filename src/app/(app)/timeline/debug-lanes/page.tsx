@@ -71,6 +71,31 @@ const RANGE_PX = 1000;
  *   visually distinct (dashed, amber) line, labelled "Financial
  *   horizon". Absent entirely otherwise — not a line at epoch.
  *
+ * What to check against P3.7's:
+ * - Zoom in/out via the +/− buttons, the `+`/`-`/`=` keyboard shortcuts,
+ *   and the select — all three land on the same zoom, and the same
+ *   *date* stays centred every time (compare the visible window before/
+ *   after; it should widen/narrow symmetrically around one fixed point,
+ *   not slide). `scale.test.ts` covers the underlying invariant this
+ *   relies on; this is the "does the UI actually exercise it" check.
+ * - "Today" jumps the anchor back to today regardless of how far you've
+ *   panned.
+ * - Click any bar/diamond/band: navigates to `/goals/[id]` for that
+ *   item's goal. Hovering (or Tab-focusing, for keyboard/screen-reader
+ *   parity) shows a card bottom-right with title, relative dates, status,
+ *   and — goals only, and only if you wire `scheduleVariances` — schedule
+ *   variance. Owner shows a raw id here since this harness doesn't fetch
+ *   `ownerNames` (a real page would, the same way it fetches `lifeAreas`).
+ * - Set "Life area" to one specific area: lanes re-group to just that
+ *   area's items *and* the network tab shows a fresh windowed fetch
+ *   (P3.1's hook re-running on the new `lifeAreaId` filter) — "re-lanes
+ *   and rewindows correctly" is really two separate things to watch for.
+ * - Filter to a combination that matches nothing (e.g. a life area with
+ *   no items, active-only with an owner who has none): the "nothing
+ *   matches these filters" Fluffy state, distinct from — reload with no
+ *   filters touched on a fresh/empty account, if you have one, to see —
+ *   the "nothing here yet" one.
+ *
  * Fetches this user's own `life_areas` directly (a real Supabase call,
  * not fake data) — reasonable for a dev-only harness; `TimelineView`
  * itself takes `lifeAreas` as a prop rather than fetching them, so a
@@ -78,7 +103,10 @@ const RANGE_PX = 1000;
  * pattern already used for e.g. `GoalForm`). `today` is computed once
  * per mount from the browser's own timezone (R2) — a real page would get
  * this from `profiles.timezone` server-side instead; this harness has no
- * server render to do that in.
+ * server render to do that in. `ownerNames`/`scheduleVariances` aren't
+ * wired here at all — both are genuinely optional, caller-supplied data
+ * `TimelineView` doesn't have the ingredients to compute itself (see
+ * that component's own prop docs).
  */
 export default function TimelineDebugLanesPage() {
   if (process.env.NODE_ENV === "production") {
