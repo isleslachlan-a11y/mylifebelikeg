@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  dateToBareDate,
   describeTimeRemaining,
   formatDate,
   formatDateRange,
@@ -14,6 +15,26 @@ import {
 
 const BRISBANE = "Australia/Brisbane"; // UTC+10, no DST
 const LONDON = "Europe/London"; // UTC+0 in January
+
+describe("dateToBareDate", () => {
+  it("reads a Date back as its UTC calendar day", () => {
+    expect(dateToBareDate(new Date("2026-03-14T00:00:00.000Z"))).toBe(
+      "2026-03-14",
+    );
+  });
+
+  it("does not shift for a time near the UTC day boundary", () => {
+    expect(dateToBareDate(new Date("2026-03-14T23:59:00.000Z"))).toBe(
+      "2026-03-14",
+    );
+  });
+
+  it("round-trips with bareDateToUtcMs via new Date(bareDate)", () => {
+    // A date-only ISO string parses as UTC midnight (scale.ts's module
+    // doc), so this is the same round-trip real callers do.
+    expect(dateToBareDate(new Date("2026-06-15"))).toBe("2026-06-15");
+  });
+});
 
 describe("formatDate — bare dates are never shifted by timezone", () => {
   it("shows the same calendar day for a Brisbane user and a London user", () => {

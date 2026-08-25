@@ -58,6 +58,20 @@ function utcMsToBareDate(ms: number): string {
 }
 
 /**
+ * A `Date` as a bare "YYYY-MM-DD", in UTC — for callers that only have a
+ * `Date` (e.g. `src/lib/timeline/scale.ts`'s domain, which is deliberately
+ * Date-based, not bare-date-string-based — see that module's doc) and need
+ * to query a bare `date` column with it, such as `v_timeline_items`'s
+ * `starts_on`/`ends_on`. UTC, not a timezone conversion: a `Date` built
+ * from scale math has no "local time" of its own to convert, so this reads
+ * it back the same way a bare date's own UTC-midnight parsing already
+ * does (see this file's module doc) rather than guessing a timezone.
+ */
+export function dateToBareDate(date: Date): string {
+  return utcMsToBareDate(date.getTime());
+}
+
+/**
  * Today's date, as a bare "YYYY-MM-DD", in `timezone` — "today" is
  * itself timezone-dependent. Call this once per request (typically at
  * the top of a page's server component, right after reading
