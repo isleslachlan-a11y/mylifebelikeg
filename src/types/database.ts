@@ -159,6 +159,13 @@ export type Database = {
             foreignKeyName: "cashflow_items_user_id_fkey";
             columns: ["user_id"];
             isOneToOne: false;
+            referencedRelation: "v_financial_horizon";
+            referencedColumns: ["user_id"];
+          },
+          {
+            foreignKeyName: "cashflow_items_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
             referencedRelation: "v_monthly_capacity";
             referencedColumns: ["user_id"];
           },
@@ -218,6 +225,13 @@ export type Database = {
             columns: ["user_id"];
             isOneToOne: false;
             referencedRelation: "v_allocation_summary";
+            referencedColumns: ["user_id"];
+          },
+          {
+            foreignKeyName: "check_ins_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "v_financial_horizon";
             referencedColumns: ["user_id"];
           },
           {
@@ -346,6 +360,13 @@ export type Database = {
             foreignKeyName: "goal_participants_invited_by_fkey";
             columns: ["invited_by"];
             isOneToOne: false;
+            referencedRelation: "v_financial_horizon";
+            referencedColumns: ["user_id"];
+          },
+          {
+            foreignKeyName: "goal_participants_invited_by_fkey";
+            columns: ["invited_by"];
+            isOneToOne: false;
             referencedRelation: "v_monthly_capacity";
             referencedColumns: ["user_id"];
           },
@@ -382,6 +403,13 @@ export type Database = {
             columns: ["user_id"];
             isOneToOne: false;
             referencedRelation: "v_allocation_summary";
+            referencedColumns: ["user_id"];
+          },
+          {
+            foreignKeyName: "goal_participants_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "v_financial_horizon";
             referencedColumns: ["user_id"];
           },
           {
@@ -469,6 +497,13 @@ export type Database = {
             columns: ["user_id"];
             isOneToOne: false;
             referencedRelation: "v_allocation_summary";
+            referencedColumns: ["user_id"];
+          },
+          {
+            foreignKeyName: "goal_ratings_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "v_financial_horizon";
             referencedColumns: ["user_id"];
           },
           {
@@ -595,6 +630,13 @@ export type Database = {
             foreignKeyName: "goals_owner_id_fkey";
             columns: ["owner_id"];
             isOneToOne: false;
+            referencedRelation: "v_financial_horizon";
+            referencedColumns: ["user_id"];
+          },
+          {
+            foreignKeyName: "goals_owner_id_fkey";
+            columns: ["owner_id"];
+            isOneToOne: false;
             referencedRelation: "v_monthly_capacity";
             referencedColumns: ["user_id"];
           },
@@ -617,6 +659,13 @@ export type Database = {
             columns: ["rag_override_by"];
             isOneToOne: false;
             referencedRelation: "v_allocation_summary";
+            referencedColumns: ["user_id"];
+          },
+          {
+            foreignKeyName: "goals_rag_override_by_fkey";
+            columns: ["rag_override_by"];
+            isOneToOne: false;
+            referencedRelation: "v_financial_horizon";
             referencedColumns: ["user_id"];
           },
           {
@@ -700,6 +749,13 @@ export type Database = {
             foreignKeyName: "invitations_accepted_by_fkey";
             columns: ["accepted_by"];
             isOneToOne: false;
+            referencedRelation: "v_financial_horizon";
+            referencedColumns: ["user_id"];
+          },
+          {
+            foreignKeyName: "invitations_accepted_by_fkey";
+            columns: ["accepted_by"];
+            isOneToOne: false;
             referencedRelation: "v_monthly_capacity";
             referencedColumns: ["user_id"];
           },
@@ -728,6 +784,13 @@ export type Database = {
             foreignKeyName: "invitations_invitee_id_fkey";
             columns: ["invitee_id"];
             isOneToOne: false;
+            referencedRelation: "v_financial_horizon";
+            referencedColumns: ["user_id"];
+          },
+          {
+            foreignKeyName: "invitations_invitee_id_fkey";
+            columns: ["invitee_id"];
+            isOneToOne: false;
             referencedRelation: "v_monthly_capacity";
             referencedColumns: ["user_id"];
           },
@@ -750,6 +813,13 @@ export type Database = {
             columns: ["inviter_id"];
             isOneToOne: false;
             referencedRelation: "v_allocation_summary";
+            referencedColumns: ["user_id"];
+          },
+          {
+            foreignKeyName: "invitations_inviter_id_fkey";
+            columns: ["inviter_id"];
+            isOneToOne: false;
+            referencedRelation: "v_financial_horizon";
             referencedColumns: ["user_id"];
           },
           {
@@ -883,6 +953,13 @@ export type Database = {
             foreignKeyName: "ledger_entries_user_id_fkey";
             columns: ["user_id"];
             isOneToOne: false;
+            referencedRelation: "v_financial_horizon";
+            referencedColumns: ["user_id"];
+          },
+          {
+            foreignKeyName: "ledger_entries_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
             referencedRelation: "v_monthly_capacity";
             referencedColumns: ["user_id"];
           },
@@ -962,6 +1039,13 @@ export type Database = {
             foreignKeyName: "life_areas_user_id_fkey";
             columns: ["user_id"];
             isOneToOne: false;
+            referencedRelation: "v_financial_horizon";
+            referencedColumns: ["user_id"];
+          },
+          {
+            foreignKeyName: "life_areas_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
             referencedRelation: "v_monthly_capacity";
             referencedColumns: ["user_id"];
           },
@@ -1027,6 +1111,13 @@ export type Database = {
             columns: ["user_id"];
             isOneToOne: false;
             referencedRelation: "v_allocation_summary";
+            referencedColumns: ["user_id"];
+          },
+          {
+            foreignKeyName: "llama_messages_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "v_financial_horizon";
             referencedColumns: ["user_id"];
           },
           {
@@ -1150,6 +1241,13 @@ export type Database = {
             columns: ["user_id"];
             isOneToOne: false;
             referencedRelation: "v_allocation_summary";
+            referencedColumns: ["user_id"];
+          },
+          {
+            foreignKeyName: "pots_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "v_financial_horizon";
             referencedColumns: ["user_id"];
           },
           {
@@ -1346,6 +1444,13 @@ export type Database = {
             foreignKeyName: "share_grants_grantee_id_fkey";
             columns: ["grantee_id"];
             isOneToOne: false;
+            referencedRelation: "v_financial_horizon";
+            referencedColumns: ["user_id"];
+          },
+          {
+            foreignKeyName: "share_grants_grantee_id_fkey";
+            columns: ["grantee_id"];
+            isOneToOne: false;
             referencedRelation: "v_monthly_capacity";
             referencedColumns: ["user_id"];
           },
@@ -1374,6 +1479,13 @@ export type Database = {
             foreignKeyName: "share_grants_grantor_id_fkey";
             columns: ["grantor_id"];
             isOneToOne: false;
+            referencedRelation: "v_financial_horizon";
+            referencedColumns: ["user_id"];
+          },
+          {
+            foreignKeyName: "share_grants_grantor_id_fkey";
+            columns: ["grantor_id"];
+            isOneToOne: false;
             referencedRelation: "v_monthly_capacity";
             referencedColumns: ["user_id"];
           },
@@ -1396,6 +1508,13 @@ export type Database = {
             columns: ["revoked_by"];
             isOneToOne: false;
             referencedRelation: "v_allocation_summary";
+            referencedColumns: ["user_id"];
+          },
+          {
+            foreignKeyName: "share_grants_revoked_by_fkey";
+            columns: ["revoked_by"];
+            isOneToOne: false;
+            referencedRelation: "v_financial_horizon";
             referencedColumns: ["user_id"];
           },
           {
@@ -1504,6 +1623,13 @@ export type Database = {
             columns: ["user_id"];
             isOneToOne: false;
             referencedRelation: "v_allocation_summary";
+            referencedColumns: ["user_id"];
+          },
+          {
+            foreignKeyName: "someday_items_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "v_financial_horizon";
             referencedColumns: ["user_id"];
           },
           {
@@ -1672,6 +1798,13 @@ export type Database = {
             columns: ["owner_id"];
             isOneToOne: false;
             referencedRelation: "v_allocation_summary";
+            referencedColumns: ["user_id"];
+          },
+          {
+            foreignKeyName: "tasks_owner_id_fkey";
+            columns: ["owner_id"];
+            isOneToOne: false;
+            referencedRelation: "v_financial_horizon";
             referencedColumns: ["user_id"];
           },
           {
@@ -1997,6 +2130,13 @@ export type Database = {
             foreignKeyName: "user_achievements_user_id_fkey";
             columns: ["user_id"];
             isOneToOne: false;
+            referencedRelation: "v_financial_horizon";
+            referencedColumns: ["user_id"];
+          },
+          {
+            foreignKeyName: "user_achievements_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
             referencedRelation: "v_monthly_capacity";
             referencedColumns: ["user_id"];
           },
@@ -2019,6 +2159,21 @@ export type Database = {
           monthly_capacity_minor: number | null;
           over_allocated: boolean | null;
           user_id: string | null;
+        };
+        Relationships: [];
+      };
+      v_financial_horizon: {
+        Row: {
+          horizon_date: string | null;
+          user_id: string | null;
+        };
+        Insert: {
+          horizon_date?: never;
+          user_id?: string | null;
+        };
+        Update: {
+          horizon_date?: never;
+          user_id?: string | null;
         };
         Relationships: [];
       };
@@ -2050,6 +2205,13 @@ export type Database = {
             columns: ["owner_id"];
             isOneToOne: false;
             referencedRelation: "v_allocation_summary";
+            referencedColumns: ["user_id"];
+          },
+          {
+            foreignKeyName: "goals_owner_id_fkey";
+            columns: ["owner_id"];
+            isOneToOne: false;
+            referencedRelation: "v_financial_horizon";
             referencedColumns: ["user_id"];
           },
           {
@@ -2116,6 +2278,13 @@ export type Database = {
             foreignKeyName: "cashflow_items_user_id_fkey";
             columns: ["user_id"];
             isOneToOne: false;
+            referencedRelation: "v_financial_horizon";
+            referencedColumns: ["user_id"];
+          },
+          {
+            foreignKeyName: "cashflow_items_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
             referencedRelation: "v_monthly_capacity";
             referencedColumns: ["user_id"];
           },
@@ -2155,6 +2324,13 @@ export type Database = {
             foreignKeyName: "pots_user_id_fkey";
             columns: ["user_id"];
             isOneToOne: false;
+            referencedRelation: "v_financial_horizon";
+            referencedColumns: ["user_id"];
+          },
+          {
+            foreignKeyName: "pots_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
             referencedRelation: "v_monthly_capacity";
             referencedColumns: ["user_id"];
           },
@@ -2166,6 +2342,25 @@ export type Database = {
             referencedColumns: ["user_id"];
           },
         ];
+      };
+      v_timeline_items: {
+        Row: {
+          ends_on: string | null;
+          goal_id: string | null;
+          is_complete: boolean | null;
+          is_point: boolean | null;
+          item_id: string | null;
+          item_type: string | null;
+          kind: string | null;
+          life_area_id: string | null;
+          owner_id: string | null;
+          parent_id: string | null;
+          sort_order: number | null;
+          starts_on: string | null;
+          status: string | null;
+          title: string | null;
+        };
+        Relationships: [];
       };
       v_trip_estimates: {
         Row: {
