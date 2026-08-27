@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { NewGoalBadge, RagBadge } from "@/components/rag-badge";
+import { evaluateLlamaTriggers } from "@/lib/llamas/evaluate";
 import { isGracePeriod, type GoalRag, type RagStatus } from "@/lib/rag";
 import { createClient } from "@/lib/supabase/server";
 
@@ -36,6 +37,16 @@ export default async function DashboardPage() {
   const { data: auth } = await supabase.auth.getClaims();
   if (!auth) {
     redirect("/login");
+  }
+
+  // P4.6: the other of the two wired evaluation points (the other is
+  // check-in submit). Debounced to at most once an hour per user inside
+  // evaluateLlamaTriggers itself — most loads are a cheap early return,
+  // not a full pass. Never blocks the dashboard rendering on failure.
+  try {
+    await evaluateLlamaTriggers(supabase, auth.claims.sub);
+  } catch (evalError) {
+    console.error("Llama evaluation failed on dashboard load", evalError);
   }
 
   // Active goals this viewer participates in — goals_select's RLS

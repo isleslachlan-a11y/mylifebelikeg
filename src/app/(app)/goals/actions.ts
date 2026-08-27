@@ -38,46 +38,15 @@ async function getUserId(supabase: SupabaseServerClient): Promise<string> {
   return auth.claims.sub;
 }
 
-/**
- * A soft warning, never a block (P1.7) — called after a goal creation or
- * reactivation succeeds, not before, so it can never stop the action it's
- * warning about. v_user_capacity.over_limit is a strict `>`, but "at or
- * over the limit" (the spec's wording) means `>=`, so this compares the
- * raw count/limit itself rather than trusting that column. A failed
- * capacity check or message emit is logged and swallowed — the goal
- * change it's reporting on has already succeeded either way.
- */
-async function checkCapacityAndWarn(
-  supabase: SupabaseServerClient,
-  userId: string,
-): Promise<void> {
-  const { data: capacity, error } = await supabase
-    .from("v_user_capacity")
-    .select("active_goal_count, active_goal_limit")
-    .eq("user_id", userId)
-    .maybeSingle();
-
-  if (error) {
-    console.error("Failed to read v_user_capacity", error);
-    return;
-  }
-  // The view's aggregate columns are typed nullable (COUNT/GROUP BY over
-  // a LEFT JOIN), but count(*) is never actually null and
-  // active_goal_limit is NOT NULL on profiles — these fallbacks exist for
-  // the type, not because either is expected in practice.
-  const activeGoalCount = capacity?.active_goal_count ?? 0;
-  const activeGoalLimit = capacity?.active_goal_limit ?? 0;
-  if (!capacity || activeGoalLimit <= 0) {
-    return;
-  }
-
-  if (activeGoalCount >= activeGoalLimit) {
-    const percentOver = Math.round(
-      ((activeGoalCount - activeGoalLimit) / activeGoalLimit) * 100,
-    );
-    await emitLlamaMessage(userId, "capacity_exceeded", { percentOver });
-  }
-}
+// capacity_exceeded used to be emitted inline right here (checked after
+// every goal create/reactivate) — removed in P4.6: that path had no
+// dedup at all, so creating several goals in a row while over the limit
+// stacked up that many identical messages. The trigger is real (P1.7's
+// warning itself is untouched, still a UI-level check, still never a
+// block) but now lives in the evaluate() route handler
+// (src/lib/llamas/evaluate.ts), which checks for an existing
+// undismissed message before inserting and runs on check-in submit and
+// dashboard load rather than on every mutation.
 
 // No `state` here — createGoal/updateGoal never touch it. Every goal is
 // created and stays 'active' at the database default; moving it through
@@ -117,10 +86,6 @@ export async function createGoal(input: GoalFormInput): Promise<ActionResult> {
   if (error) {
     return { ok: false, error: humanizeDbError(error) };
   }
-
-  // Every new goal starts 'active' (no state field in toRow), so this
-  // always just increased the active count by one.
-  await checkCapacityAndWarn(supabase, userId);
 
   revalidatePath("/goals");
   redirect("/goals");
@@ -260,13 +225,6 @@ export async function transitionGoalState(
       { goalTitle: goal.title },
       { type: "goal", id: goal.id },
     );
-  }
-
-  // Reactivating (someday/completed/archived/abandoned -> active) also
-  // increases the active count, same as creating a new goal — capacity
-  // doesn't care which path got you there.
-  if (targetState === "active") {
-    await checkCapacityAndWarn(supabase, userId);
   }
 
   revalidatePath("/goals");

@@ -71,13 +71,6 @@ export const COPY_VARIANTS: { [K in TriggerCode]: CopyFn<K>[] } = {
     ({ overMinor, currency }) =>
       `That's ${formatMoney(overMinor, currency)} over what you actually have free each month. Not stopping you — just saying it plainly.`,
   ],
-  checkin_due: [
-    ({ goalTitle }) =>
-      `${goalTitle} hasn't had a check-in this week. Two minutes, that's the whole ask.`,
-    ({ goalTitle }) =>
-      `No update on ${goalTitle} yet. I'll wait, but the goal won't check in on itself.`,
-  ],
-
   // ---- Fluffy: warm, enthusiastic, encouraging without being
   // saccharine. Never minimises a genuine setback. ----
   goal_green: [
@@ -115,6 +108,14 @@ export const COPY_VARIANTS: { [K in TriggerCode]: CopyFn<K>[] } = {
       `${goalTitle} is trending better than last week — whatever you changed, it's working!`,
     ({ goalTitle }) =>
       `That's a real turnaround on ${goalTitle}. Not luck — that's you showing up.`,
+  ],
+  // P4.6 correction: moved from Derek and reshaped from a per-goal
+  // reminder to a whole-week one — see TriggerParams.checkin_due's doc.
+  checkin_due: [
+    ({ daysLeft }) =>
+      `This week's check-in is still open — ${daysLeft} day${daysLeft === 1 ? "" : "s"} left. Two minutes, whenever suits.`,
+    ({ daysLeft }) =>
+      `Haven't seen this week's check-in yet — ${daysLeft} day${daysLeft === 1 ? "" : "s"} to go. No rush, just don't forget!`,
   ],
 };
 

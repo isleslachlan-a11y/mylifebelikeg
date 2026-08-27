@@ -24,7 +24,6 @@ export const TRIGGER_REGISTRY: Record<TriggerCode, RegistryEntry> = {
   capacity_exceeded: { speaker: "derek", priority: 1 },
   capacity_shortfall: { speaker: "derek", priority: 1 },
   allocation_over_capacity: { speaker: "derek", priority: 1 },
-  checkin_due: { speaker: "derek", priority: 2 },
 
   goal_green: { speaker: "fluffy", priority: 3 },
   goal_completed: { speaker: "fluffy", priority: 1 },
@@ -32,6 +31,11 @@ export const TRIGGER_REGISTRY: Record<TriggerCode, RegistryEntry> = {
   first_goal: { speaker: "fluffy", priority: 3 },
   trip_booked: { speaker: "fluffy", priority: 2 },
   goal_improved: { speaker: "fluffy", priority: 3 },
+  // P4.6 correction: a nudge that a weekly ritual is due reads as
+  // encouragement, not a fault to call out — moved from Derek (its
+  // speculative P0.6 assignment) to Fluffy, matching P4.6's own trigger
+  // table exactly.
+  checkin_due: { speaker: "fluffy", priority: 2 },
 };
 
 export function getSpeaker(trigger: TriggerCode): LlamaSpeaker {

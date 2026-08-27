@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 
 import { createClient } from "@/lib/supabase/server";
 import { humanizeDbError } from "@/lib/errors";
+import { evaluateLlamaTriggers } from "@/lib/llamas/evaluate";
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
 
@@ -144,7 +145,7 @@ export async function saveOverallNote(
  */
 export async function submitCheckIn(checkInId: string): Promise<ActionResult> {
   const supabase = await createClient();
-  await getUserId(supabase);
+  const userId = await getUserId(supabase);
 
   const { error } = await supabase
     .from("check_ins")
@@ -154,6 +155,19 @@ export async function submitCheckIn(checkInId: string): Promise<ActionResult> {
 
   if (error) {
     return { ok: false, error: humanizeDbError(error) };
+  }
+
+  // P4.6: one of the two wired evaluation points (the other is dashboard
+  // load). Runs after the trigger-driven RAG snapshot above so
+  // goal_red/goal_amber/goal_green/goal_improved see this check-in's own
+  // fresh snapshot, not the previous one. Subject to
+  // evaluateLlamaTriggers's own hourly debounce — this call doesn't
+  // force it to run, it just gives it a chance to. Never blocks the
+  // submission itself: the check-in has already saved by this point.
+  try {
+    await evaluateLlamaTriggers(supabase, userId);
+  } catch (evalError) {
+    console.error("Llama evaluation failed after check-in submit", evalError);
   }
 
   revalidatePath("/check-in");

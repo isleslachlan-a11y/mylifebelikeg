@@ -1523,6 +1523,7 @@ export type Database = {
           display_name: string;
           handle: string;
           id: string;
+          llama_evaluated_at: string | null;
           llama_frequency: Database["public"]["Enums"]["llama_frequency"];
           onboarded_at: string | null;
           timezone: string;
@@ -1538,6 +1539,7 @@ export type Database = {
           display_name: string;
           handle: string;
           id: string;
+          llama_evaluated_at?: string | null;
           llama_frequency?: Database["public"]["Enums"]["llama_frequency"];
           onboarded_at?: string | null;
           timezone?: string;
@@ -1553,6 +1555,7 @@ export type Database = {
           display_name?: string;
           handle?: string;
           id?: string;
+          llama_evaluated_at?: string | null;
           llama_frequency?: Database["public"]["Enums"]["llama_frequency"];
           onboarded_at?: string | null;
           timezone?: string;

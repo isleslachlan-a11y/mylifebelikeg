@@ -33,11 +33,29 @@ export default async function AppLayout({
     redirect("/onboarding");
   }
 
+  // P4.6's inbox — undismissed messages, newest first. llama_messages_select's
+  // RLS (user_id = auth.uid()) already scopes this to the signed-in user.
+  const { data: llamaMessages } = await supabase
+    .from("llama_messages")
+    .select("id, speaker, body, read_at")
+    .is("dismissed_at", null)
+    .order("created_at", { ascending: false })
+    .limit(30);
+  const inboxMessages = (llamaMessages ?? []).map((m) => ({
+    id: m.id,
+    speaker: m.speaker,
+    body: m.body,
+    readAt: m.read_at,
+  }));
+
   return (
     <div className="flex min-h-screen">
-      <Sidebar displayName={profile.display_name} />
+      <Sidebar displayName={profile.display_name} inboxMessages={inboxMessages} />
       <div className="flex flex-1 flex-col">
-        <MobileHeader displayName={profile.display_name} />
+        <MobileHeader
+          displayName={profile.display_name}
+          inboxMessages={inboxMessages}
+        />
         <main className="flex-1 pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-0">
           {children}
         </main>

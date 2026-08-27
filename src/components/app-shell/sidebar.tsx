@@ -1,12 +1,20 @@
+import { LlamaInbox, type InboxMessage } from "./llama-inbox";
 import { NavLink } from "./nav-link";
 import { SignOutButton } from "./sign-out-button";
 import { NAV_ITEMS } from "./nav-items";
 
-export function Sidebar({ displayName }: { displayName: string }) {
+export function Sidebar({
+  displayName,
+  inboxMessages,
+}: {
+  displayName: string;
+  inboxMessages: InboxMessage[];
+}) {
   return (
     <aside className="border-subtle bg-surface hidden w-56 shrink-0 flex-col border-r md:flex">
-      <div className="px-4 py-5">
+      <div className="flex items-center justify-between px-4 py-5">
         <span className="font-display text-foreground text-xl">Starmap</span>
+        <LlamaInbox initialMessages={inboxMessages} />
       </div>
 
       <nav className="flex flex-1 flex-col gap-1 px-3">

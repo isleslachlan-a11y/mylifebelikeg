@@ -27,7 +27,7 @@ const EXAMPLES: { [K in TriggerCode]: TriggerParams[K] } = {
   capacity_exceeded: { percentOver: 15 },
   capacity_shortfall: { capacityMinor: -12000, currency: "AUD" },
   allocation_over_capacity: { overMinor: 35000, currency: "AUD" },
-  checkin_due: { goalTitle: "Move to London" },
+  checkin_due: { daysLeft: 2 },
   goal_green: { goalTitle: "Wedding Fund" },
   goal_completed: { goalTitle: "Pay off credit card" },
   checkin_streak: { weeks: 6 },

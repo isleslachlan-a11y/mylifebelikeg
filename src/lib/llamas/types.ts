@@ -67,7 +67,15 @@ export type TriggerParams = {
    * same as capacity_shortfall, not persisted to llama_messages.
    */
   allocation_over_capacity: { overMinor: number; currency: string };
-  checkin_due: { goalTitle: string };
+  /**
+   * P4.6 correction: this was speculatively shaped per-goal back in
+   * P0.6, before P4.1 built the real check-in flow and settled that a
+   * check-in is one weekly ritual covering every goal at once, not a
+   * per-goal thing — `goalTitle` never fit what actually got built.
+   * `daysLeft` matches the real trigger condition (P4.6's own table:
+   * "within 2 days of period end").
+   */
+  checkin_due: { daysLeft: number };
   checkin_streak: { weeks: number };
   first_goal: { goalTitle: string };
   trip_booked: { tripTitle: string };
