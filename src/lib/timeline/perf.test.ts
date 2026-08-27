@@ -293,3 +293,37 @@ describe("P3.8 perf: stress scale (10x the brief's minimum, to see where the cur
     expect(elapsedMs).toBeLessThan(200);
   });
 });
+
+describe("PERF-BUDGET.md: stacking bucket exactly as specified (50 items, one lane)", () => {
+  it("assignSubRows on 50 items in a single lane", () => {
+    // The budget's own bucket, distinct from the 200-items/6-lanes case
+    // above (240 items, ~40/lane) — this isolates single-lane cost at
+    // the smaller end, deliberately with heavy overlap (every item
+    // shares its start with the one two before it) so the collision
+    // path is exercised throughout, not a best-case empty stack.
+    const stackable: StackableItem[] = Array.from({ length: 50 }, (_, i) => {
+      const startOffset = Math.floor(i / 3) * 2; // three items per 2-day slot
+      const starts = new Date(START.getTime() + startOffset * DAY_MS);
+      const ends = new Date(starts.getTime() + 5 * DAY_MS);
+      return {
+        item_id: `solo-lane-item-${i}`,
+        item_type: "task",
+        starts_on: starts,
+        ends_on: ends,
+        sort_order: 0,
+        title: `Item ${i}`,
+      };
+    });
+    const scale = createScale("month", new Date("2024-02-01"), 1000);
+
+    const start = performance.now();
+    const { maxDepth } = assignSubRows(stackable, scale);
+    const elapsedMs = performance.now() - start;
+
+    console.log(
+      `[perf] assignSubRows, 50 items/1 lane: ${elapsedMs.toFixed(3)}ms, depth ${maxDepth}`,
+    );
+    // PERF-BUDGET.md target <5ms, ceiling 15ms.
+    expect(elapsedMs).toBeLessThan(15);
+  });
+});
