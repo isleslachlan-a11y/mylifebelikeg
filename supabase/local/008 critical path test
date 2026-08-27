@@ -1,0 +1,205 @@
+-- LOCAL ONLY. Verifies the CPM scheduler.
+-- Run after 001_smoke_test.sql.
+\set ON_ERROR_STOP on
+begin;
+
+-- ---- goals WITHOUT dependencies keep simple offset behaviour ----------------
+insert into goals (id, owner_id, title, state, start_date, target_date)
+values ('99999999-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111',
+        'No deps goal', 'active', current_date, current_date + 60);
+
+insert into tasks (id, goal_id, owner_id, title, offset_days, duration_days) values
+  ('99999999-1000-0000-0000-000000000001', '99999999-0000-0000-0000-000000000001',
+   '11111111-1111-1111-1111-111111111111', 'Free task A', 10, 5),
+  ('99999999-1000-0000-0000-000000000002', '99999999-0000-0000-0000-000000000001',
+   '11111111-1111-1111-1111-111111111111', 'Free task B', 20, 5);
+
+do $$
+declare t record;
+begin
+  select * into t from tasks where id = '99999999-1000-0000-0000-000000000001';
+  assert t.computed_start = current_date + 10, format('offset ignored: %s', t.computed_start);
+  assert t.total_float_days is null, 'a goal with no dependencies should have no float';
+  assert not t.is_critical, 'no task is critical without a dependency network';
+end $$;
+
+-- ---- a simple chain ---------------------------------------------------------
+-- A(5) -> B(10) -> C(3), all fs with no lag. Chain length 18 days.
+insert into goals (id, owner_id, title, state, start_date, target_date)
+values ('99999999-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111',
+        'Chain goal', 'active', current_date, current_date + 60);
+
+insert into tasks (id, goal_id, owner_id, title, offset_days, duration_days) values
+  ('99999999-2000-0000-0000-00000000000a', '99999999-0000-0000-0000-000000000002',
+   '11111111-1111-1111-1111-111111111111', 'A', 0, 5),
+  ('99999999-2000-0000-0000-00000000000b', '99999999-0000-0000-0000-000000000002',
+   '11111111-1111-1111-1111-111111111111', 'B', 0, 10),
+  ('99999999-2000-0000-0000-00000000000c', '99999999-0000-0000-0000-000000000002',
+   '11111111-1111-1111-1111-111111111111', 'C', 0, 3);
+
+insert into task_dependencies (predecessor_task_id, successor_task_id) values
+  ('99999999-2000-0000-0000-00000000000a', '99999999-2000-0000-0000-00000000000b'),
+  ('99999999-2000-0000-0000-00000000000b', '99999999-2000-0000-0000-00000000000c');
+
+do $$
+declare a record; b record; c record;
+begin
+  select * into a from tasks where id = '99999999-2000-0000-0000-00000000000a';
+  select * into b from tasks where id = '99999999-2000-0000-0000-00000000000b';
+  select * into c from tasks where id = '99999999-2000-0000-0000-00000000000c';
+
+  assert a.computed_start = current_date,      format('A start: %s', a.computed_start);
+  assert a.computed_end   = current_date + 5,  format('A end: %s', a.computed_end);
+  assert b.computed_start = current_date + 5,  format('B start: %s', b.computed_start);
+  assert b.computed_end   = current_date + 15, format('B end: %s', b.computed_end);
+  assert c.computed_start = current_date + 15, format('C start: %s', c.computed_start);
+  assert c.computed_end   = current_date + 18, format('C end: %s', c.computed_end);
+
+  -- Everything on a single chain is critical.
+  assert a.is_critical and b.is_critical and c.is_critical, 'whole chain should be critical';
+  assert a.total_float_days = 0 and b.total_float_days = 0 and c.total_float_days = 0,
+    'chain tasks should have zero float';
+end $$;
+
+-- ---- a parallel branch has float --------------------------------------------
+-- Add D(2) parallel to B: A -> D -> C. D has 8 days of float (10 - 2).
+insert into tasks (id, goal_id, owner_id, title, offset_days, duration_days)
+values ('99999999-2000-0000-0000-00000000000d', '99999999-0000-0000-0000-000000000002',
+        '11111111-1111-1111-1111-111111111111', 'D', 0, 2);
+
+insert into task_dependencies (predecessor_task_id, successor_task_id) values
+  ('99999999-2000-0000-0000-00000000000a', '99999999-2000-0000-0000-00000000000d'),
+  ('99999999-2000-0000-0000-00000000000d', '99999999-2000-0000-0000-00000000000c');
+
+do $$
+declare d record; b record;
+begin
+  select * into d from tasks where id = '99999999-2000-0000-0000-00000000000d';
+  select * into b from tasks where id = '99999999-2000-0000-0000-00000000000b';
+
+  assert d.total_float_days = 8, format('D should have 8 days float, got %s', d.total_float_days);
+  assert not d.is_critical, 'D is not on the critical path';
+  assert b.is_critical, 'B remains critical';
+end $$;
+
+-- ---- slipping a critical task ripples ---------------------------------------
+do $$
+declare c_before date; c_after date; proj date;
+begin
+  select computed_start into c_before from tasks where id = '99999999-2000-0000-0000-00000000000c';
+
+  -- B takes 5 days longer.
+  update tasks set duration_days = 15 where id = '99999999-2000-0000-0000-00000000000b';
+
+  select computed_start into c_after from tasks where id = '99999999-2000-0000-0000-00000000000c';
+  assert c_after = c_before + 5,
+    format('slipping B by 5 should push C by 5: %s -> %s', c_before, c_after);
+
+  proj := app.goal_projected_end('99999999-0000-0000-0000-000000000002');
+  assert proj = current_date + 23, format('projected end should be +23, got %s', proj);
+end $$;
+
+-- Slipping a NON-critical task within its float changes nothing downstream.
+do $$
+declare c_before date; c_after date;
+begin
+  select computed_start into c_before from tasks where id = '99999999-2000-0000-0000-00000000000c';
+  update tasks set duration_days = 5 where id = '99999999-2000-0000-0000-00000000000d';  -- was 2, float 13
+  select computed_start into c_after from tasks where id = '99999999-2000-0000-0000-00000000000c';
+  assert c_after = c_before, 'consuming float should not move the successor';
+end $$;
+
+-- Exceeding float makes the task critical and moves the project.
+do $$
+declare d record; proj_before date; proj_after date;
+begin
+  proj_before := app.goal_projected_end('99999999-0000-0000-0000-000000000002');
+  update tasks set duration_days = 30 where id = '99999999-2000-0000-0000-00000000000d';
+  proj_after := app.goal_projected_end('99999999-0000-0000-0000-000000000002');
+
+  select * into d from tasks where id = '99999999-2000-0000-0000-00000000000d';
+  assert d.is_critical, 'D should become critical once it exceeds its float';
+  assert proj_after > proj_before, 'project end should move out';
+end $$;
+
+-- Restore.
+update tasks set duration_days = 2 where id = '99999999-2000-0000-0000-00000000000d';
+
+-- ---- lag --------------------------------------------------------------------
+do $$
+declare b record; b_before date;
+begin
+  select computed_start into b_before from tasks where id = '99999999-2000-0000-0000-00000000000b';
+  update task_dependencies set lag_days = 3
+   where predecessor_task_id = '99999999-2000-0000-0000-00000000000a'
+     and successor_task_id = '99999999-2000-0000-0000-00000000000b';
+
+  select * into b from tasks where id = '99999999-2000-0000-0000-00000000000b';
+  assert b.computed_start = b_before + 3, format('3-day lag not applied: %s -> %s', b_before, b.computed_start);
+
+  update task_dependencies set lag_days = 0
+   where predecessor_task_id = '99999999-2000-0000-0000-00000000000a'
+     and successor_task_id = '99999999-2000-0000-0000-00000000000b';
+end $$;
+
+-- ---- start-to-start ---------------------------------------------------------
+do $$
+declare a record; b record;
+begin
+  update task_dependencies set dep_type = 'ss'
+   where predecessor_task_id = '99999999-2000-0000-0000-00000000000a'
+     and successor_task_id = '99999999-2000-0000-0000-00000000000b';
+
+  select * into a from tasks where id = '99999999-2000-0000-0000-00000000000a';
+  select * into b from tasks where id = '99999999-2000-0000-0000-00000000000b';
+  assert b.computed_start = a.computed_start,
+    format('ss should align starts: A %s, B %s', a.computed_start, b.computed_start);
+
+  update task_dependencies set dep_type = 'fs'
+   where predecessor_task_id = '99999999-2000-0000-0000-00000000000a'
+     and successor_task_id = '99999999-2000-0000-0000-00000000000b';
+end $$;
+
+-- ---- goal start cascade still works through CPM -----------------------------
+do $$
+declare before_d date; after_d date;
+begin
+  select computed_start into before_d from tasks where id = '99999999-2000-0000-0000-00000000000c';
+  update goals set start_date = start_date + 10 where id = '99999999-0000-0000-0000-000000000002';
+  select computed_start into after_d from tasks where id = '99999999-2000-0000-0000-00000000000c';
+  assert after_d = before_d + 10, format('goal cascade broken under CPM: %s -> %s', before_d, after_d);
+end $$;
+
+-- ---- deleting a dependency reverts to offsets -------------------------------
+do $$
+declare n int;
+begin
+  delete from task_dependencies
+   where predecessor_task_id in (
+     '99999999-2000-0000-0000-00000000000a','99999999-2000-0000-0000-00000000000b',
+     '99999999-2000-0000-0000-00000000000d');
+
+  select count(*) into n from tasks
+   where goal_id = '99999999-0000-0000-0000-000000000002' and is_critical;
+  assert n = 0, format('no task should be critical with no dependencies, got %s', n);
+end $$;
+
+-- ---- overdue critical task forces schedule red ------------------------------
+do $$
+declare r record;
+begin
+  update goals set start_date = current_date - 100, target_date = current_date + 100,
+                   created_at = now() - interval '60 days'
+   where id = '99999999-0000-0000-0000-000000000002';
+
+  insert into task_dependencies (predecessor_task_id, successor_task_id)
+  values ('99999999-2000-0000-0000-00000000000a', '99999999-2000-0000-0000-00000000000b');
+
+  select * into r from app.compute_goal_rag('99999999-0000-0000-0000-000000000002');
+  assert (r.inputs->>'overdue_critical_tasks')::int > 0,
+    'overdue critical task should be detected now that is_critical is populated';
+  assert r.schedule_status = 'red', 'overdue critical task must force schedule red';
+end $$;
+
+rollback;
+select 'CRITICAL PATH VERIFIED' as result;

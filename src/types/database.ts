@@ -2104,11 +2104,25 @@ export type Database = {
             referencedColumns: ["id"];
           },
           {
+            foreignKeyName: "task_dependencies_predecessor_task_id_fkey";
+            columns: ["predecessor_task_id"];
+            isOneToOne: false;
+            referencedRelation: "v_critical_path";
+            referencedColumns: ["task_id"];
+          },
+          {
             foreignKeyName: "task_dependencies_successor_task_id_fkey";
             columns: ["successor_task_id"];
             isOneToOne: false;
             referencedRelation: "tasks";
             referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "task_dependencies_successor_task_id_fkey";
+            columns: ["successor_task_id"];
+            isOneToOne: false;
+            referencedRelation: "v_critical_path";
+            referencedColumns: ["task_id"];
           },
         ];
       };
@@ -2654,6 +2668,127 @@ export type Database = {
           user_id?: string | null;
         };
         Relationships: [];
+      };
+      v_critical_path: {
+        Row: {
+          computed_end: string | null;
+          computed_start: string | null;
+          goal_id: string | null;
+          is_critical: boolean | null;
+          owner_id: string | null;
+          status: Database["public"]["Enums"]["task_status"] | null;
+          task_id: string | null;
+          title: string | null;
+          total_float_days: number | null;
+        };
+        Insert: {
+          computed_end?: string | null;
+          computed_start?: string | null;
+          goal_id?: string | null;
+          is_critical?: boolean | null;
+          owner_id?: string | null;
+          status?: Database["public"]["Enums"]["task_status"] | null;
+          task_id?: string | null;
+          title?: string | null;
+          total_float_days?: number | null;
+        };
+        Update: {
+          computed_end?: string | null;
+          computed_start?: string | null;
+          goal_id?: string | null;
+          is_critical?: boolean | null;
+          owner_id?: string | null;
+          status?: Database["public"]["Enums"]["task_status"] | null;
+          task_id?: string | null;
+          title?: string | null;
+          total_float_days?: number | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "tasks_goal_id_fkey";
+            columns: ["goal_id"];
+            isOneToOne: false;
+            referencedRelation: "goals";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "tasks_goal_id_fkey";
+            columns: ["goal_id"];
+            isOneToOne: false;
+            referencedRelation: "v_goal_affordability";
+            referencedColumns: ["goal_id"];
+          },
+          {
+            foreignKeyName: "tasks_goal_id_fkey";
+            columns: ["goal_id"];
+            isOneToOne: false;
+            referencedRelation: "v_goal_funding";
+            referencedColumns: ["goal_id"];
+          },
+          {
+            foreignKeyName: "tasks_goal_id_fkey";
+            columns: ["goal_id"];
+            isOneToOne: false;
+            referencedRelation: "v_goal_rag";
+            referencedColumns: ["goal_id"];
+          },
+          {
+            foreignKeyName: "tasks_goal_id_fkey";
+            columns: ["goal_id"];
+            isOneToOne: false;
+            referencedRelation: "v_goal_rating_trend";
+            referencedColumns: ["goal_id"];
+          },
+          {
+            foreignKeyName: "tasks_goal_id_fkey";
+            columns: ["goal_id"];
+            isOneToOne: false;
+            referencedRelation: "v_rating_divergence";
+            referencedColumns: ["goal_id"];
+          },
+          {
+            foreignKeyName: "tasks_owner_id_fkey";
+            columns: ["owner_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "tasks_owner_id_fkey";
+            columns: ["owner_id"];
+            isOneToOne: false;
+            referencedRelation: "v_allocation_summary";
+            referencedColumns: ["user_id"];
+          },
+          {
+            foreignKeyName: "tasks_owner_id_fkey";
+            columns: ["owner_id"];
+            isOneToOne: false;
+            referencedRelation: "v_checkin_streak";
+            referencedColumns: ["user_id"];
+          },
+          {
+            foreignKeyName: "tasks_owner_id_fkey";
+            columns: ["owner_id"];
+            isOneToOne: false;
+            referencedRelation: "v_financial_horizon";
+            referencedColumns: ["user_id"];
+          },
+          {
+            foreignKeyName: "tasks_owner_id_fkey";
+            columns: ["owner_id"];
+            isOneToOne: false;
+            referencedRelation: "v_monthly_capacity";
+            referencedColumns: ["user_id"];
+          },
+          {
+            foreignKeyName: "tasks_owner_id_fkey";
+            columns: ["owner_id"];
+            isOneToOne: false;
+            referencedRelation: "v_user_capacity";
+            referencedColumns: ["user_id"];
+          },
+        ];
       };
       v_financial_horizon: {
         Row: {
