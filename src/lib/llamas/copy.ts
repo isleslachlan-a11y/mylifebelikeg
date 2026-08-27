@@ -41,6 +41,12 @@ export const COPY_VARIANTS: { [K in TriggerCode]: CopyFn<K>[] } = {
     ({ goalTitle }) =>
       `Can't rate ${goalTitle} red, amber, or green. It's none of them. It's undefined — fix that first.`,
   ],
+  schedule_momentum_mismatch: [
+    ({ goalTitle }) =>
+      `${goalTitle}'s schedule looks fine, but the ratings say otherwise. Tasks getting ticked off that aren't the actual work will do that.`,
+    ({ goalTitle }) =>
+      `The tasks on ${goalTitle} say green. The ratings say red. One of those is measuring the wrong thing.`,
+  ],
   capacity_exceeded: [
     ({ percentOver }) =>
       `Your commitments this month run ${percentOver}% over what you actually have. Something gives eventually.`,

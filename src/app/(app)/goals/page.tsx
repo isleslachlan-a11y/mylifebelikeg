@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { LlamaEmptyState } from "@/components/llama-empty-state";
 import { todayInZone, toGoalOffset } from "@/lib/dates";
+import type { GoalRag } from "@/lib/rag";
 import { computeScheduleVariance } from "@/lib/schedule-variance";
 import { createClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
@@ -175,6 +176,31 @@ export default async function GoalsPage({
     }
   }
 
+  // P4.2: RAG status per goal, read straight from v_goal_rag (0016) —
+  // app.compute_goal_rag/app.effective_goal_rag exposed as a view, never
+  // recomputed here. Same flat-query-then-map pattern as taskProgress
+  // above, for the same reason (no per-goal round trip for a list page).
+  const ragByGoal = new Map<string, GoalRag>();
+  if (allGoalIds.length > 0) {
+    const { data: ragRows, error: ragError } = await supabase
+      .from("v_goal_rag")
+      .select("*")
+      .in("goal_id", allGoalIds);
+    if (ragError) {
+      throw new Error(ragError.message);
+    }
+    for (const row of ragRows ?? []) {
+      // Postgres reports every view column nullable regardless of the
+      // underlying tables' real constraints (same fact
+      // timeline-item-adapter.ts documents) — goal_id is never actually
+      // null since it's g.id, but drop defensively rather than crash if
+      // it ever were.
+      if (row.goal_id) {
+        ragByGoal.set(row.goal_id, row);
+      }
+    }
+  }
+
   function scheduleVarianceFor(goal: Goal): number | null {
     return computeScheduleVariance({
       createdAt: goal.created_at,
@@ -264,6 +290,7 @@ export default async function GoalsPage({
               ownerName={ownerName}
               taskProgress={taskProgress[goal.id] ?? { done: 0, total: 0 }}
               scheduleVariance={scheduleVarianceFor(goal)}
+              rag={ragByGoal.get(goal.id)}
             />
           ))}
         </ul>
@@ -296,6 +323,7 @@ export default async function GoalsPage({
                       taskProgress[goal.id] ?? { done: 0, total: 0 }
                     }
                     scheduleVariance={scheduleVarianceFor(goal)}
+                    rag={ragByGoal.get(goal.id)}
                   />
                 ))}
               </ul>
@@ -324,6 +352,7 @@ export default async function GoalsPage({
                       taskProgress[goal.id] ?? { done: 0, total: 0 }
                     }
                     scheduleVariance={scheduleVarianceFor(goal)}
+                    rag={ragByGoal.get(goal.id)}
                   />
                 ))}
               </ul>

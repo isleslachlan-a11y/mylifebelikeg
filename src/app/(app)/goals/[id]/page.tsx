@@ -6,10 +6,6 @@ import { Button } from "@/components/ui/button";
 import { GoalTimeline } from "@/components/timeline/goal-timeline";
 import { describeTimeRemaining, formatDate, todayInZone } from "@/lib/dates";
 import { formatMoney } from "@/lib/money";
-import {
-  computeScheduleVariance,
-  formatScheduleVariance,
-} from "@/lib/schedule-variance";
 import { createClient } from "@/lib/supabase/server";
 import { goalStateLabel } from "../goal-state-label";
 import { DeleteGoalButton } from "./delete-goal-button";
@@ -18,6 +14,7 @@ import { GoalStateActions } from "./goal-state-actions";
 import { LedgerSection } from "./ledger-section";
 import { MilestonesSection } from "./milestones-section";
 import { ParticipantsSection } from "./participants-section";
+import { RagBreakdown } from "./rag-breakdown";
 import { TasksSection } from "./tasks-section";
 
 export default async function GoalDetailPage({
@@ -125,6 +122,7 @@ export default async function GoalDetailPage({
   const [
     { data: ledgerEntries, error: ledgerError },
     { data: pots, error: potsError },
+    { data: rag, error: ragError },
   ] = await Promise.all([
     // No user_id filter — RLS is the actual gate, and per Schema.MD,
     // ledger entries against a shared goal are visible to every
@@ -143,6 +141,9 @@ export default async function GoalDetailPage({
       .select("id, name, currency, is_default")
       .eq("user_id", userId)
       .is("deleted_at", null),
+    // P4.2: app.compute_goal_rag/app.effective_goal_rag, exposed via
+    // v_goal_rag (0016) — never recomputed here.
+    supabase.from("v_goal_rag").select("*").eq("goal_id", id).maybeSingle(),
   ]);
 
   if (ledgerError) {
@@ -150,6 +151,9 @@ export default async function GoalDetailPage({
   }
   if (potsError) {
     throw new Error(potsError.message);
+  }
+  if (ragError || !rag) {
+    throw new Error(ragError?.message ?? "Couldn't load this goal's RAG status.");
   }
 
   const [
@@ -229,15 +233,20 @@ export default async function GoalDetailPage({
     ownerNames[p.user_id] = p.profile.display_name;
   }
 
-  const scheduleVariance = computeScheduleVariance({
-    createdAt: goal.created_at,
-    startDate: goal.start_date,
-    targetDate: goal.target_date,
-    tasks: (tasks ?? []).map((t) => ({
-      durationDays: t.duration_days,
-      status: t.status,
-    })),
-  });
+  // Raw task counts (cancelled excluded), for the schedule breakdown's
+  // "4 of 12 tasks done" (P4.2 brief) — deliberately not
+  // rag.inputs.task_weight_done/total, which are duration-weighted sums
+  // used for the variance calculation itself, a different number.
+  const nonCancelledTasks = (tasks ?? []).filter(
+    (t) => t.status !== "cancelled",
+  );
+  const taskCounts =
+    nonCancelledTasks.length > 0
+      ? {
+          done: nonCancelledTasks.filter((t) => t.status === "done").length,
+          total: nonCancelledTasks.length,
+        }
+      : null;
 
   // Target dates get the time-remaining treatment (P1.10); start dates
   // don't — "how long ago it started" isn't a useful urgency signal the
@@ -273,15 +282,12 @@ export default async function GoalDetailPage({
           {goal.kind === "trip" && <Badge variant="outline">Trip</Badge>}
         </div>
 
-        {/* A neutral number with direction, not a RAG colour — only the
-            schedule dimension has real data until Phase 4, and a colour
-            drawn from a third of the model would teach you to distrust
-            it (P1.7). Null means genuinely nothing to show, not 0%. */}
-        {scheduleVariance != null && (
-          <p className="text-muted-foreground text-sm">
-            {formatScheduleVariance(scheduleVariance)}
-          </p>
-        )}
+        <RagBreakdown
+          rag={rag}
+          goalTitle={goal.title}
+          funding={goal.funding}
+          taskCounts={taskCounts}
+        />
 
         {goal.description && (
           <p className="text-muted-foreground text-sm">{goal.description}</p>

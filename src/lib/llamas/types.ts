@@ -19,6 +19,7 @@ export type TriggerCode =
   | "task_overdue"
   | "budget_exceeded"
   | "goal_undefined"
+  | "schedule_momentum_mismatch"
   | "capacity_exceeded"
   | "capacity_shortfall"
   | "allocation_over_capacity"
@@ -41,6 +42,14 @@ export type TriggerParams = {
     elapsedPercent: number;
   };
   goal_undefined: { goalTitle: string };
+  /**
+   * P4.2's explicit call-out: schedule green + momentum red. Worst-wins
+   * already renders the goal red with no explanation of why one
+   * dimension contradicts another this sharply — this trigger exists
+   * specifically to say the quiet part ("the tasks don't reflect the
+   * real work") rather than leaving it implied by a colour alone.
+   */
+  schedule_momentum_mismatch: { goalTitle: string };
   capacity_exceeded: { percentOver: number };
   /**
    * Distinct from capacity_exceeded, which is about active_goal_count

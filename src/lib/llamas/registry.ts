@@ -20,6 +20,7 @@ export const TRIGGER_REGISTRY: Record<TriggerCode, RegistryEntry> = {
   task_overdue: { speaker: "derek", priority: 1 },
   budget_exceeded: { speaker: "derek", priority: 1 },
   goal_undefined: { speaker: "derek", priority: 2 },
+  schedule_momentum_mismatch: { speaker: "derek", priority: 2 },
   capacity_exceeded: { speaker: "derek", priority: 1 },
   capacity_shortfall: { speaker: "derek", priority: 1 },
   allocation_over_capacity: { speaker: "derek", priority: 1 },

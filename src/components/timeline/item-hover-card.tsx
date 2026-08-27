@@ -1,4 +1,6 @@
+import { NewGoalBadge, RagBadge } from "@/components/rag-badge";
 import { describeTimeRemaining, formatDateRange } from "@/lib/dates";
+import { isGracePeriod, type GoalRag } from "@/lib/rag";
 import { formatScheduleVariance } from "@/lib/schedule-variance";
 import {
   classifyItemStatus,
@@ -29,6 +31,15 @@ export type ItemHoverCardProps = {
    * `formatScheduleVariance`'s own caller contract already uses.
    */
   scheduleVariancePp?: number | null;
+  /**
+   * From `v_goal_rag` (P4.2) — only meaningful for `item_type: "goal"`
+   * rows, same caller-supplied contract as `scheduleVariancePp`. When
+   * present, replaces the generic date-derived Status row with the real
+   * RAG badge for that goal; absent (map not supplied, or a non-goal
+   * item) falls back to the classifyItemStatus-derived label, same as
+   * before P4.2.
+   */
+  rag?: GoalRag;
 };
 
 /**
@@ -39,15 +50,23 @@ export type ItemHoverCardProps = {
  * component itself free of any positioning math; `pointer-events-none`
  * so the card is never what captures a click meant for the item behind
  * it.
+ *
+ * P4.2: for a goal item with `rag` supplied, the Status row becomes the
+ * real RAG badge (colour + label, never colour alone) instead of the
+ * generic completed/overdue/in-progress/not-started classification —
+ * this is the one place besides the goal bands themselves where that
+ * classification gets replaced for goals specifically.
  */
 export function ItemHoverCard({
   item,
   today,
   ownerName,
   scheduleVariancePp,
+  rag,
 }: ItemHoverCardProps) {
   const status = classifyItemStatus(item, today);
   const isPoint = item.starts_on === item.ends_on;
+  const showRag = item.item_type === "goal" && rag != null;
 
   return (
     <div
@@ -70,9 +89,19 @@ export function ItemHoverCard({
             <dd className="text-foreground">{ownerName}</dd>
           </div>
         )}
-        <div className="flex justify-between gap-3">
+        <div className="flex items-center justify-between gap-3">
           <dt className="text-muted-foreground">Status</dt>
-          <dd className="text-foreground">{STATUS_LABEL[status]}</dd>
+          <dd className="text-foreground">
+            {showRag && rag ? (
+              isGracePeriod(rag) ? (
+                <NewGoalBadge />
+              ) : (
+                <RagBadge status={rag.effective_status ?? "grey"} />
+              )
+            ) : (
+              STATUS_LABEL[status]
+            )}
+          </dd>
         </div>
         {item.item_type === "goal" && scheduleVariancePp != null && (
           <div className="flex justify-between gap-3">

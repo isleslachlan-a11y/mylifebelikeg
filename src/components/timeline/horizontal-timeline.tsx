@@ -3,6 +3,7 @@
 import { Fragment, useMemo } from "react";
 
 import { Badge } from "@/components/ui/badge";
+import { isGracePeriod, type GoalRag } from "@/lib/rag";
 import {
   classifyItemStatus,
   type ItemVisualStatus,
@@ -75,6 +76,21 @@ export type HorizontalTimelineProps = {
   onHoverItem: (itemId: string | null) => void;
   /** Navigates to the item's goal — every item type resolves to `goal_id` (P3.7: "click an item -> navigate to its goal detail page"). */
   onNavigate: (goalId: string) => void;
+  /**
+   * From `v_goal_rag` (P4.2), keyed by `goal_id` — genuinely optional,
+   * caller-supplied data this component has no way to compute itself
+   * (same reason `ownerNames`/`goalTitles`/`scheduleVariances` already
+   * are: `v_timeline_items` doesn't carry it). Goal bands render by RAG
+   * when a goal has an entry here, replacing P3.4's original
+   * `classifyItemStatus`-based colouring for goals specifically —
+   * milestones and tasks keep that classification, since RAG is a
+   * goal-level concept only. A goal missing from this map (map not
+   * supplied at all, or no matching row) renders as a neutral
+   * `bg-muted` band rather than falling back to the old date-based
+   * classification, since that would silently reintroduce exactly the
+   * colouring this is meant to replace.
+   */
+  goalRag?: Map<string, GoalRag>;
 };
 
 /**
@@ -130,6 +146,7 @@ export function HorizontalTimeline({
   hoveredItemId,
   onHoverItem,
   onNavigate,
+  goalRag,
 }: HorizontalTimelineProps) {
   return (
     <div
@@ -161,6 +178,7 @@ export function HorizontalTimeline({
             hoveredItemId={hoveredItemId}
             onHoverItem={onHoverItem}
             onNavigate={onNavigate}
+            goalRag={goalRag}
           />
         ))}
 
@@ -284,6 +302,7 @@ function LaneGridRow({
   hoveredItemId,
   onHoverItem,
   onNavigate,
+  goalRag,
 }: {
   lane: Lane<DisplayTimelineItem>;
   scale: HorizontalTimelineScale;
@@ -294,6 +313,7 @@ function LaneGridRow({
   hoveredItemId: string | null;
   onHoverItem: (itemId: string | null) => void;
   onNavigate: (goalId: string) => void;
+  goalRag?: Map<string, GoalRag>;
 }) {
   const goalBands = lane.items.filter((item) => item.item_type === "goal");
   const stackableItems = lane.items.filter((item) => item.item_type !== "goal");
@@ -395,7 +415,6 @@ function LaneGridRow({
                 widthForItem(start, end, scale),
                 MIN_BAR_WIDTH_PX,
               );
-              const status = classifyItemStatus(goal, today);
               const hovered = hoveredItemId === goal.item_id;
               return (
                 <button
@@ -412,7 +431,7 @@ function LaneGridRow({
                     // sometimes `position: sticky`.
                     "absolute top-0 z-0 h-full text-left",
                     GOAL_BAND_OPACITY,
-                    statusFillClass(status),
+                    ragFillClass(goalRag?.get(goal.goal_id)),
                     hovered && "ring-foreground ring-2 ring-offset-1",
                   )}
                   style={{ left, width }}
@@ -536,13 +555,41 @@ function ItemLabel({
   );
 }
 
+// P4.2: goal bands only — replaces this file's own P3.4 date-based
+// classification for goals specifically (statusFillClass below still
+// colours milestones/tasks; RAG is a goal-level concept, not theirs). No
+// entry (map not supplied, or no matching row) renders neutral rather
+// than falling back to the old classification — the whole point of
+// "replacing" is that a goal band's colour stops being date-derived.
+// Grace-period goals (P4.2: "don't render a colour... render 'new'")
+// get the same neutral treatment as "no data" here, on a compact band
+// with no room for a text badge — the goal detail page is where "new"
+// actually reads as a word.
+function ragFillClass(rag: GoalRag | undefined): string {
+  if (!rag || isGracePeriod(rag)) {
+    return "bg-muted";
+  }
+  switch (rag.effective_status) {
+    case "green":
+      return "bg-rag-green";
+    case "amber":
+      return "bg-rag-amber";
+    case "red":
+      return "bg-rag-red";
+    case "grey":
+    default:
+      return "bg-rag-grey";
+  }
+}
+
 // Completed -> star, overdue -> rag-red, in-progress -> primary,
 // not-started -> a border-subtle outline with no fill (a hollow bar
 // reads as "hasn't started" more clearly than a fourth solid colour
 // would). Colocated with the component that uses it, matching
 // goal-timeline.tsx's taskFill/milestoneFill precedent, rather than
 // living in lib/timeline/ — Tailwind class selection is a rendering
-// concern, not shared layout math.
+// concern, not shared layout math. Still used for milestones/tasks —
+// only goal bands switched to ragFillClass above.
 function statusFillClass(status: ItemVisualStatus): string {
   switch (status) {
     case "completed":

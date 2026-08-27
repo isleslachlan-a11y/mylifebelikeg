@@ -23,6 +23,7 @@ const EXAMPLES: { [K in TriggerCode]: TriggerParams[K] } = {
     elapsedPercent: 30,
   },
   goal_undefined: { goalTitle: "Someday: New Car" },
+  schedule_momentum_mismatch: { goalTitle: "Move to London" },
   capacity_exceeded: { percentOver: 15 },
   capacity_shortfall: { capacityMinor: -12000, currency: "AUD" },
   allocation_over_capacity: { overMinor: 35000, currency: "AUD" },

@@ -1,7 +1,9 @@
 import Link from "next/link";
 
 import { Badge } from "@/components/ui/badge";
+import { NewGoalBadge, RagBadge } from "@/components/rag-badge";
 import { describeTimeRemaining } from "@/lib/dates";
+import { isGracePeriod, type GoalRag } from "@/lib/rag";
 import { formatScheduleVariance } from "@/lib/schedule-variance";
 import type { Database } from "@/types/database";
 import { goalStateLabel } from "./goal-state-label";
@@ -14,6 +16,7 @@ export function GoalRow({
   taskProgress,
   ownerName,
   scheduleVariance,
+  rag,
 }: {
   goal: Goal;
   /** Computed once per request via todayInZone — never new Date() here. */
@@ -23,6 +26,8 @@ export function GoalRow({
   ownerName?: string;
   /** null means "nothing to show" (no start/target date, no tasks, or still in the grace period) — never render 0%. */
   scheduleVariance?: number | null;
+  /** From v_goal_rag (P4.2) — undefined only if the row wasn't found (shouldn't happen for a real goal, but the map lookup is honest about it). */
+  rag?: GoalRag;
 }) {
   const targetDisplay = goal.target_date
     ? describeTimeRemaining(goal.target_date, today)
@@ -40,6 +45,15 @@ export function GoalRow({
             <Badge variant="secondary" className="h-4 px-1.5 text-[0.65rem]">
               {goalStateLabel(goal.state)}
             </Badge>
+            {rag &&
+              (isGracePeriod(rag) ? (
+                <NewGoalBadge className="h-4 px-1.5 text-[0.65rem]" />
+              ) : (
+                <RagBadge
+                  status={rag.effective_status ?? "grey"}
+                  className="h-4 px-1.5 text-[0.65rem]"
+                />
+              ))}
             {targetDisplay ? (
               <span>
                 {targetDisplay.primary}{" "}

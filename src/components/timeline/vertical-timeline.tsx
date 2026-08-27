@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 
 import { Badge } from "@/components/ui/badge";
+import { isGracePeriod, type GoalRag } from "@/lib/rag";
 import {
   classifyItemStatus,
   type ItemVisualStatus,
@@ -66,6 +67,8 @@ export type VerticalTimelineProps = {
   onHoverItem: (itemId: string | null) => void;
   /** Navigates to the item's goal — every item type resolves to `goal_id` (P3.7: "click an item -> navigate to its goal detail page"). */
   onNavigate: (goalId: string) => void;
+  /** From `v_goal_rag` (P4.2), keyed by `goal_id` — see horizontal-timeline.tsx's identical prop doc; same optional/replaces-classifyItemStatus-for-goals-only contract. */
+  goalRag?: Map<string, GoalRag>;
 };
 
 /**
@@ -118,6 +121,7 @@ export function VerticalTimeline({
   hoveredItemId,
   onHoverItem,
   onNavigate,
+  goalRag,
 }: VerticalTimelineProps) {
   return (
     <div className="flex flex-col gap-2 pb-[env(safe-area-inset-bottom)]">
@@ -134,6 +138,7 @@ export function VerticalTimeline({
           hoveredItemId={hoveredItemId}
           onHoverItem={onHoverItem}
           onNavigate={onNavigate}
+          goalRag={goalRag}
         />
       ))}
     </div>
@@ -151,6 +156,7 @@ function VerticalLaneSection({
   hoveredItemId,
   onHoverItem,
   onNavigate,
+  goalRag,
 }: {
   lane: Lane<DisplayTimelineItem>;
   scale: VerticalTimelineScale;
@@ -162,6 +168,7 @@ function VerticalLaneSection({
   hoveredItemId: string | null;
   onHoverItem: (itemId: string | null) => void;
   onNavigate: (goalId: string) => void;
+  goalRag?: Map<string, GoalRag>;
 }) {
   const goalBands = lane.items.filter((item) => item.item_type === "goal");
   const stackableItems = lane.items.filter((item) => item.item_type !== "goal");
@@ -250,7 +257,6 @@ function VerticalLaneSection({
                   widthForItem(start, end, scale),
                   MIN_BAR_LENGTH_PX,
                 );
-                const status = classifyItemStatus(goal, today);
                 const hovered = hoveredItemId === goal.item_id;
                 return (
                   <button
@@ -267,7 +273,7 @@ function VerticalLaneSection({
                       // sometimes `position: sticky`.
                       "absolute left-0 z-0 w-full text-left",
                       GOAL_BAND_OPACITY,
-                      statusFillClass(status),
+                      ragFillClass(goalRag?.get(goal.goal_id)),
                       hovered && "ring-foreground ring-2 ring-offset-1",
                     )}
                     style={{ top, height }}
@@ -466,12 +472,33 @@ function ItemLabel({
   );
 }
 
+// P4.2: goal bands only — same rules as horizontal-timeline.tsx's
+// identical function (see its comment), deliberately duplicated rather
+// than imported for the same reason statusFillClass below already is.
+function ragFillClass(rag: GoalRag | undefined): string {
+  if (!rag || isGracePeriod(rag)) {
+    return "bg-muted";
+  }
+  switch (rag.effective_status) {
+    case "green":
+      return "bg-rag-green";
+    case "amber":
+      return "bg-rag-amber";
+    case "red":
+      return "bg-rag-red";
+    case "grey":
+    default:
+      return "bg-rag-grey";
+  }
+}
+
 // Same four-way palette as horizontal-timeline.tsx, deliberately
 // duplicated rather than imported: colocated with the component that
 // renders it (matching goal-timeline.tsx's taskFill/milestoneFill
 // precedent) rather than shared, same reasoning as the layout constants
 // above — Tailwind class selection here is presentation, not the kind of
-// "date maths" R6 says should transfer between orientations.
+// "date maths" R6 says should transfer between orientations. Still used
+// for milestones/tasks — only goal bands switched to ragFillClass above.
 function statusFillClass(status: ItemVisualStatus): string {
   switch (status) {
     case "completed":

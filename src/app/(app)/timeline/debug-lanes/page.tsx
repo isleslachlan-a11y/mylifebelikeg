@@ -40,9 +40,11 @@ const RANGE_PX = 1000;
  * - Pick a task whose start date lands exactly on a visible axis tick,
  *   at each of the five zooms: its bar's left edge lines up with that
  *   tick, not offset from it (R3 — bars anchor, never centre).
- * - A completed item is `bg-star`, an overdue incomplete one is
- *   `bg-rag-red`, one already underway is `bg-primary`, one that hasn't
- *   started is a hollow `border-subtle` outline.
+ * - A completed task/milestone is `bg-star`, an overdue incomplete one
+ *   is `bg-rag-red`, one already underway is `bg-primary`, one that
+ *   hasn't started is a hollow `border-subtle` outline. (Goal bands
+ *   stopped following this classification in P4.2 — see that phase's
+ *   note further down.)
  *
  * What to check against P3.5's (below 768px — devtools device toolbar,
  * set to something like 390px wide):
@@ -103,10 +105,15 @@ const RANGE_PX = 1000;
  * pattern already used for e.g. `GoalForm`). `today` is computed once
  * per mount from the browser's own timezone (R2) — a real page would get
  * this from `profiles.timezone` server-side instead; this harness has no
- * server render to do that in. `ownerNames`/`scheduleVariances` aren't
- * wired here at all — both are genuinely optional, caller-supplied data
- * `TimelineView` doesn't have the ingredients to compute itself (see
- * that component's own prop docs).
+ * server render to do that in. `ownerNames`/`scheduleVariances`/`goalRag`
+ * aren't wired here at all — all three are genuinely optional,
+ * caller-supplied data `TimelineView` doesn't have the ingredients to
+ * compute itself (see that component's own prop docs). Practically:
+ * every goal band renders as a neutral `bg-muted` here (P4.2's
+ * `ragFillClass` treats an unsupplied map the same as "no RAG data for
+ * this goal"), not the four-way date classification goal bands used
+ * before P4.2 — a real page supplying `goalRag` from `v_goal_rag` is
+ * what brings the actual colours back.
  */
 export default function TimelineDebugLanesPage() {
   if (process.env.NODE_ENV === "production") {

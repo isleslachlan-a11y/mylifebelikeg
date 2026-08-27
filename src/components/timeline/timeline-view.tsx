@@ -13,6 +13,7 @@ import {
   type TimelineItemFilters,
   type TimelineItemType,
 } from "@/hooks/use-timeline-items";
+import type { GoalRag } from "@/lib/rag";
 import { groupIntoLanes, type GroupingMode } from "@/lib/timeline/lanes";
 import { createScale, type ZoomLevel } from "@/lib/timeline/scale";
 import { createClient } from "@/lib/supabase/client";
@@ -62,6 +63,14 @@ export type TimelineViewProps = {
    * the card shows no schedule row for that goal, never a fabricated 0.
    */
   scheduleVariances?: Map<string, number | null>;
+  /**
+   * From `v_goal_rag` (P4.2), keyed by `goal_id` — same caller-supplied
+   * contract as `scheduleVariances`, since `v_timeline_items` doesn't
+   * carry RAG data either. Drives both timeline layouts' goal-band
+   * colouring (replacing P3.4's date-based classification for goals
+   * specifically) and the hover card's status row for goal items.
+   */
+  goalRag?: Map<string, GoalRag>;
   /** Timezone-resolved, computed once per request by the caller (R2) — never `new Date()` here or below. */
   today: string;
   /**
@@ -128,6 +137,7 @@ export function TimelineView({
   ownerNames,
   goalTitles,
   scheduleVariances,
+  goalRag,
   today,
   financialHorizon = null,
   initialAnchor,
@@ -566,6 +576,7 @@ export function TimelineView({
           hoveredItemId={hoveredItemId}
           onHoverItem={setHoveredItemId}
           onNavigate={navigateToGoal}
+          goalRag={goalRag}
         />
       ) : (
         <HorizontalTimeline
@@ -579,6 +590,7 @@ export function TimelineView({
           hoveredItemId={hoveredItemId}
           onHoverItem={setHoveredItemId}
           onNavigate={navigateToGoal}
+          goalRag={goalRag}
         />
       )}
 
@@ -589,6 +601,7 @@ export function TimelineView({
             today={today}
             ownerName={ownerNames?.get(hoveredItem.owner_id)}
             scheduleVariancePp={scheduleVariances?.get(hoveredItem.goal_id)}
+            rag={goalRag?.get(hoveredItem.goal_id)}
           />
         </div>
       )}

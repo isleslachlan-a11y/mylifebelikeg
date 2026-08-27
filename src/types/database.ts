@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.15";
+    PostgrestVersion: "14.17";
   };
   public: {
     Tables: {
@@ -357,6 +357,13 @@ export type Database = {
             referencedColumns: ["goal_id"];
           },
           {
+            foreignKeyName: "goal_participants_goal_id_fkey";
+            columns: ["goal_id"];
+            isOneToOne: false;
+            referencedRelation: "v_goal_rag";
+            referencedColumns: ["goal_id"];
+          },
+          {
             foreignKeyName: "goal_participants_invited_by_fkey";
             columns: ["invited_by"];
             isOneToOne: false;
@@ -511,6 +518,13 @@ export type Database = {
             columns: ["goal_id"];
             isOneToOne: false;
             referencedRelation: "v_goal_funding";
+            referencedColumns: ["goal_id"];
+          },
+          {
+            foreignKeyName: "goal_ratings_goal_id_fkey";
+            columns: ["goal_id"];
+            isOneToOne: false;
+            referencedRelation: "v_goal_rag";
             referencedColumns: ["goal_id"];
           },
           {
@@ -992,6 +1006,13 @@ export type Database = {
             referencedColumns: ["goal_id"];
           },
           {
+            foreignKeyName: "ledger_entries_goal_id_fkey";
+            columns: ["goal_id"];
+            isOneToOne: false;
+            referencedRelation: "v_goal_rag";
+            referencedColumns: ["goal_id"];
+          },
+          {
             foreignKeyName: "ledger_entries_pot_id_fkey";
             columns: ["pot_id"];
             isOneToOne: false;
@@ -1283,6 +1304,13 @@ export type Database = {
             referencedRelation: "v_goal_funding";
             referencedColumns: ["goal_id"];
           },
+          {
+            foreignKeyName: "milestones_goal_id_fkey";
+            columns: ["goal_id"];
+            isOneToOne: false;
+            referencedRelation: "v_goal_rag";
+            referencedColumns: ["goal_id"];
+          },
         ];
       };
       pots: {
@@ -1485,6 +1513,13 @@ export type Database = {
             columns: ["goal_id"];
             isOneToOne: false;
             referencedRelation: "v_goal_funding";
+            referencedColumns: ["goal_id"];
+          },
+          {
+            foreignKeyName: "rag_snapshots_goal_id_fkey";
+            columns: ["goal_id"];
+            isOneToOne: false;
+            referencedRelation: "v_goal_rag";
             referencedColumns: ["goal_id"];
           },
         ];
@@ -1906,6 +1941,13 @@ export type Database = {
             referencedColumns: ["goal_id"];
           },
           {
+            foreignKeyName: "tasks_goal_id_fkey";
+            columns: ["goal_id"];
+            isOneToOne: false;
+            referencedRelation: "v_goal_rag";
+            referencedColumns: ["goal_id"];
+          },
+          {
             foreignKeyName: "tasks_milestone_id_fkey";
             columns: ["milestone_id"];
             isOneToOne: false;
@@ -2210,6 +2252,13 @@ export type Database = {
             referencedRelation: "v_goal_funding";
             referencedColumns: ["goal_id"];
           },
+          {
+            foreignKeyName: "trips_goal_id_fkey";
+            columns: ["goal_id"];
+            isOneToOne: true;
+            referencedRelation: "v_goal_rag";
+            referencedColumns: ["goal_id"];
+          },
         ];
       };
       user_achievements: {
@@ -2405,6 +2454,22 @@ export type Database = {
         };
         Relationships: [];
       };
+      v_goal_rag: {
+        Row: {
+          budget_status: Database["public"]["Enums"]["rag_status"] | null;
+          budget_variance_pp: number | null;
+          effective_status: Database["public"]["Enums"]["rag_status"] | null;
+          goal_id: string | null;
+          inputs: Json | null;
+          is_overridden: boolean | null;
+          momentum_mean: number | null;
+          momentum_status: Database["public"]["Enums"]["rag_status"] | null;
+          overall_status: Database["public"]["Enums"]["rag_status"] | null;
+          schedule_status: Database["public"]["Enums"]["rag_status"] | null;
+          schedule_variance_pp: number | null;
+        };
+        Relationships: [];
+      };
       v_monthly_capacity: {
         Row: {
           base_currency: string | null;
@@ -2551,6 +2616,13 @@ export type Database = {
             referencedRelation: "v_goal_funding";
             referencedColumns: ["goal_id"];
           },
+          {
+            foreignKeyName: "goal_ratings_goal_id_fkey";
+            columns: ["goal_id"];
+            isOneToOne: false;
+            referencedRelation: "v_goal_rag";
+            referencedColumns: ["goal_id"];
+          },
         ];
       };
       v_timeline_items: {
@@ -2602,6 +2674,13 @@ export type Database = {
             columns: ["goal_id"];
             isOneToOne: true;
             referencedRelation: "v_goal_funding";
+            referencedColumns: ["goal_id"];
+          },
+          {
+            foreignKeyName: "trips_goal_id_fkey";
+            columns: ["goal_id"];
+            isOneToOne: true;
+            referencedRelation: "v_goal_rag";
             referencedColumns: ["goal_id"];
           },
         ];
