@@ -97,6 +97,70 @@ export type Database = {
           },
         ];
       };
+      capacity_suggestion_dismissals: {
+        Row: {
+          created_at: string;
+          id: string;
+          period_start: string;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          id?: string;
+          period_start: string;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          id?: string;
+          period_start?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "capacity_suggestion_dismissals_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "capacity_suggestion_dismissals_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "v_allocation_summary";
+            referencedColumns: ["user_id"];
+          },
+          {
+            foreignKeyName: "capacity_suggestion_dismissals_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "v_checkin_streak";
+            referencedColumns: ["user_id"];
+          },
+          {
+            foreignKeyName: "capacity_suggestion_dismissals_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "v_financial_horizon";
+            referencedColumns: ["user_id"];
+          },
+          {
+            foreignKeyName: "capacity_suggestion_dismissals_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "v_monthly_capacity";
+            referencedColumns: ["user_id"];
+          },
+          {
+            foreignKeyName: "capacity_suggestion_dismissals_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "v_user_capacity";
+            referencedColumns: ["user_id"];
+          },
+        ];
+      };
       cashflow_items: {
         Row: {
           active_from: string;
@@ -2913,7 +2977,22 @@ export type Database = {
       };
     };
     Functions: {
+      current_checkin_period: {
+        Args: never;
+        Returns: {
+          period_end: string;
+          period_start: string;
+        }[];
+      };
       ensure_current_checkin: { Args: never; Returns: string };
+      suggest_goal_limit_change: {
+        Args: never;
+        Returns: {
+          current_limit: number;
+          direction: string;
+          reason: string;
+        }[];
+      };
     };
     Enums: {
       booking_status: "idea" | "researching" | "booked" | "done" | "cancelled";

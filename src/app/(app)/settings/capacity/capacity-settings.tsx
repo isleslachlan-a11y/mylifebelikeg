@@ -7,15 +7,24 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { updateActiveGoalLimit } from "./actions";
 
-// Do not build limit-change suggestions here based on capacity ratings —
-// that needs check-in history from Phase 4 (P1.7's notes). This is just
-// the count and a plain number input.
+/**
+ * The direct-edit path (P4.5 brief: "the user can always change the
+ * limit directly", independent of any suggestion) — moved here from
+ * profile/capacity-settings.tsx, now alongside the suggestion itself
+ * rather than a bare number input with a forward-pointing comment about
+ * Phase 4. `recentCapacityMean` is `v_user_capacity`'s own column,
+ * never recomputed here; null means fewer than 3 capacity ratings ever
+ * (the view's own definition), shown as "not enough data yet" rather
+ * than a fabricated number.
+ */
 export function CapacitySettings({
   activeGoalCount,
   activeGoalLimit,
+  recentCapacityMean,
 }: {
   activeGoalCount: number;
   activeGoalLimit: number;
+  recentCapacityMean: number | null;
 }) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -41,9 +50,22 @@ export function CapacitySettings({
 
   return (
     <div className="flex flex-col gap-2">
-      <p className="text-muted-foreground text-sm">
-        {activeGoalCount} of {activeGoalLimit} active goals
-      </p>
+      <dl className="text-muted-foreground flex flex-col gap-0.5 text-sm">
+        <div className="flex justify-between gap-3">
+          <dt>Active goals</dt>
+          <dd>
+            {activeGoalCount} of {activeGoalLimit}
+          </dd>
+        </div>
+        <div className="flex justify-between gap-3">
+          <dt>Recent capacity</dt>
+          <dd>
+            {recentCapacityMean != null
+              ? `${recentCapacityMean.toFixed(1)} / 5`
+              : "Not enough data yet"}
+          </dd>
+        </div>
+      </dl>
       <form onSubmit={handleSubmit} className="flex items-end gap-2">
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="active-goal-limit">Active goal limit</Label>
