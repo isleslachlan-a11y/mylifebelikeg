@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { GoalTimeline } from "@/components/timeline/goal-timeline";
 import { describeTimeRemaining, formatDate, todayInZone } from "@/lib/dates";
 import { formatMoney } from "@/lib/money";
+import { buildRatingTrend } from "@/lib/rating-trend";
 import { createClient } from "@/lib/supabase/server";
 import { goalStateLabel } from "../goal-state-label";
 import { DeleteGoalButton } from "./delete-goal-button";
@@ -13,6 +14,7 @@ import { FundingSection } from "./funding-section";
 import { GoalStateActions } from "./goal-state-actions";
 import { LedgerSection } from "./ledger-section";
 import { MilestonesSection } from "./milestones-section";
+import { MomentumSection } from "./momentum-section";
 import { OverrideSection } from "./override-section";
 import { ParticipantsSection } from "./participants-section";
 import { RagBreakdown } from "./rag-breakdown";
@@ -125,6 +127,9 @@ export default async function GoalDetailPage({
     { data: pots, error: potsError },
     { data: rag, error: ragError },
     { data: overrideHistory, error: overrideHistoryError },
+    { data: ragSnapshots, error: ragSnapshotsError },
+    { data: divergenceRows, error: divergenceError },
+    { data: ratingTrendRows, error: ratingTrendError },
   ] = await Promise.all([
     // No user_id filter — RLS is the actual gate, and per Schema.MD,
     // ledger entries against a shared goal are visible to every
@@ -156,6 +161,31 @@ export default async function GoalDetailPage({
       )
       .eq("goal_id", id)
       .order("set_at", { ascending: false }),
+    // P4.4: one row per submitted check-in that rated this goal — the
+    // reason snapshots exist rather than only ever computing on read.
+    supabase
+      .from("rag_snapshots")
+      .select("computed_at, overall_status")
+      .eq("goal_id", id)
+      .order("computed_at", { ascending: true }),
+    // P4.4/0018: v_rating_divergence's own HAVING clause only requires
+    // 2+ raters, not a spread of 2+ — the brief's actual threshold is
+    // filtered here. Most recent divergent period only (see
+    // momentum-section.tsx's doc).
+    supabase
+      .from("v_rating_divergence")
+      .select("period_start, spread")
+      .eq("goal_id", id)
+      .gte("spread", 2)
+      .order("period_start", { ascending: false })
+      .limit(1),
+    // P4.4/0018: every participant's raw score per period, for the
+    // sparkline (never an average) and to name who scored what in the
+    // divergence callout.
+    supabase
+      .from("v_goal_rating_trend")
+      .select("user_id, period_start, score")
+      .eq("goal_id", id),
   ]);
 
   if (ledgerError) {
@@ -169,6 +199,15 @@ export default async function GoalDetailPage({
   }
   if (overrideHistoryError) {
     throw new Error(overrideHistoryError.message);
+  }
+  if (ragSnapshotsError) {
+    throw new Error(ragSnapshotsError.message);
+  }
+  if (divergenceError) {
+    throw new Error(divergenceError.message);
+  }
+  if (ratingTrendError) {
+    throw new Error(ratingTrendError.message);
   }
 
   const [
@@ -285,6 +324,48 @@ export default async function GoalDetailPage({
     endedReason: entry.ended_reason as "replaced" | "cleared_by_checkin" | null,
   }));
 
+  // P4.4: rating trend (0018's v_goal_rating_trend) — every column on a
+  // view is nullable regardless of the underlying tables' real
+  // constraints (same fact timeline-item-adapter.ts documents), so this
+  // drops any row missing a field rather than crash. ownerNames is the
+  // same owner+participants map built above for milestones/tasks.
+  const validTrendPoints = (ratingTrendRows ?? []).filter(
+    (r): r is { user_id: string; period_start: string; score: number } =>
+      r.user_id != null && r.period_start != null && r.score != null,
+  );
+  const trend = buildRatingTrend(
+    validTrendPoints.map((r) => ({
+      userId: r.user_id,
+      periodStart: r.period_start,
+      score: r.score,
+    })),
+    ownerNames,
+  );
+
+  // Most recent period with a spread of 2+ (if any), cross-referenced
+  // against the raw trend rows to name who scored what —
+  // v_rating_divergence itself only has the aggregate, not per-rater
+  // scores.
+  const divergenceRow = (divergenceRows ?? [])[0];
+  const divergence =
+    divergenceRow?.period_start != null
+      ? {
+          periodStart: divergenceRow.period_start,
+          entries: validTrendPoints
+            .filter((r) => r.period_start === divergenceRow.period_start)
+            .map((r) => ({
+              name: ownerNames[r.user_id] ?? "Someone",
+              score: r.score,
+              isYou: r.user_id === userId,
+            })),
+        }
+      : null;
+
+  const ragHistory = (ragSnapshots ?? []).map((s) => ({
+    computedAt: s.computed_at,
+    overallStatus: s.overall_status,
+  }));
+
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-8 p-6">
       <div className="flex flex-col gap-3">
@@ -326,6 +407,14 @@ export default async function GoalDetailPage({
           history={overrideHistoryEntries}
           timezone={timezone}
           canEdit={canEditGoal}
+        />
+
+        <MomentumSection
+          rag={rag}
+          ragHistory={ragHistory}
+          trend={trend}
+          divergence={divergence}
+          timezone={timezone}
         />
 
         {goal.description && (

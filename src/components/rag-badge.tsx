@@ -2,7 +2,8 @@ import { Badge } from "@/components/ui/badge";
 import { RAG_LABEL, type RagStatus } from "@/lib/rag";
 import { cn } from "@/lib/utils";
 
-const DOT_CLASS: Record<RagStatus, string> = {
+/** Exported for the RAG history band (P4.4), which paints the same four colours as flat segments rather than dots. */
+export const RAG_DOT_CLASS: Record<RagStatus, string> = {
   green: "bg-rag-green",
   amber: "bg-rag-amber",
   red: "bg-rag-red",
@@ -26,7 +27,7 @@ export type RagBadgeProps = {
 export function RagBadge({ status, label, className }: RagBadgeProps) {
   return (
     <Badge variant="outline" className={cn("gap-1.5", className)}>
-      <span className={cn("size-2 rounded-full", DOT_CLASS[status])} aria-hidden />
+      <span className={cn("size-2 rounded-full", RAG_DOT_CLASS[status])} aria-hidden />
       {label ?? RAG_LABEL[status]}
     </Badge>
   );

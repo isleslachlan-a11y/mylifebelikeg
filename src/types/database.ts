@@ -364,6 +364,20 @@ export type Database = {
             referencedColumns: ["goal_id"];
           },
           {
+            foreignKeyName: "goal_participants_goal_id_fkey";
+            columns: ["goal_id"];
+            isOneToOne: false;
+            referencedRelation: "v_goal_rating_trend";
+            referencedColumns: ["goal_id"];
+          },
+          {
+            foreignKeyName: "goal_participants_goal_id_fkey";
+            columns: ["goal_id"];
+            isOneToOne: false;
+            referencedRelation: "v_rating_divergence";
+            referencedColumns: ["goal_id"];
+          },
+          {
             foreignKeyName: "goal_participants_invited_by_fkey";
             columns: ["invited_by"];
             isOneToOne: false;
@@ -525,6 +539,20 @@ export type Database = {
             columns: ["goal_id"];
             isOneToOne: false;
             referencedRelation: "v_goal_rag";
+            referencedColumns: ["goal_id"];
+          },
+          {
+            foreignKeyName: "goal_ratings_goal_id_fkey";
+            columns: ["goal_id"];
+            isOneToOne: false;
+            referencedRelation: "v_goal_rating_trend";
+            referencedColumns: ["goal_id"];
+          },
+          {
+            foreignKeyName: "goal_ratings_goal_id_fkey";
+            columns: ["goal_id"];
+            isOneToOne: false;
+            referencedRelation: "v_rating_divergence";
             referencedColumns: ["goal_id"];
           },
           {
@@ -1013,6 +1041,20 @@ export type Database = {
             referencedColumns: ["goal_id"];
           },
           {
+            foreignKeyName: "ledger_entries_goal_id_fkey";
+            columns: ["goal_id"];
+            isOneToOne: false;
+            referencedRelation: "v_goal_rating_trend";
+            referencedColumns: ["goal_id"];
+          },
+          {
+            foreignKeyName: "ledger_entries_goal_id_fkey";
+            columns: ["goal_id"];
+            isOneToOne: false;
+            referencedRelation: "v_rating_divergence";
+            referencedColumns: ["goal_id"];
+          },
+          {
             foreignKeyName: "ledger_entries_pot_id_fkey";
             columns: ["pot_id"];
             isOneToOne: false;
@@ -1311,6 +1353,20 @@ export type Database = {
             referencedRelation: "v_goal_rag";
             referencedColumns: ["goal_id"];
           },
+          {
+            foreignKeyName: "milestones_goal_id_fkey";
+            columns: ["goal_id"];
+            isOneToOne: false;
+            referencedRelation: "v_goal_rating_trend";
+            referencedColumns: ["goal_id"];
+          },
+          {
+            foreignKeyName: "milestones_goal_id_fkey";
+            columns: ["goal_id"];
+            isOneToOne: false;
+            referencedRelation: "v_rating_divergence";
+            referencedColumns: ["goal_id"];
+          },
         ];
       };
       pots: {
@@ -1507,6 +1563,20 @@ export type Database = {
             referencedColumns: ["goal_id"];
           },
           {
+            foreignKeyName: "rag_override_history_goal_id_fkey";
+            columns: ["goal_id"];
+            isOneToOne: false;
+            referencedRelation: "v_goal_rating_trend";
+            referencedColumns: ["goal_id"];
+          },
+          {
+            foreignKeyName: "rag_override_history_goal_id_fkey";
+            columns: ["goal_id"];
+            isOneToOne: false;
+            referencedRelation: "v_rating_divergence";
+            referencedColumns: ["goal_id"];
+          },
+          {
             foreignKeyName: "rag_override_history_set_by_fkey";
             columns: ["set_by"];
             isOneToOne: false;
@@ -1630,6 +1700,20 @@ export type Database = {
             columns: ["goal_id"];
             isOneToOne: false;
             referencedRelation: "v_goal_rag";
+            referencedColumns: ["goal_id"];
+          },
+          {
+            foreignKeyName: "rag_snapshots_goal_id_fkey";
+            columns: ["goal_id"];
+            isOneToOne: false;
+            referencedRelation: "v_goal_rating_trend";
+            referencedColumns: ["goal_id"];
+          },
+          {
+            foreignKeyName: "rag_snapshots_goal_id_fkey";
+            columns: ["goal_id"];
+            isOneToOne: false;
+            referencedRelation: "v_rating_divergence";
             referencedColumns: ["goal_id"];
           },
         ];
@@ -2058,6 +2142,20 @@ export type Database = {
             referencedColumns: ["goal_id"];
           },
           {
+            foreignKeyName: "tasks_goal_id_fkey";
+            columns: ["goal_id"];
+            isOneToOne: false;
+            referencedRelation: "v_goal_rating_trend";
+            referencedColumns: ["goal_id"];
+          },
+          {
+            foreignKeyName: "tasks_goal_id_fkey";
+            columns: ["goal_id"];
+            isOneToOne: false;
+            referencedRelation: "v_rating_divergence";
+            referencedColumns: ["goal_id"];
+          },
+          {
             foreignKeyName: "tasks_milestone_id_fkey";
             columns: ["milestone_id"];
             isOneToOne: false;
@@ -2369,6 +2467,20 @@ export type Database = {
             referencedRelation: "v_goal_rag";
             referencedColumns: ["goal_id"];
           },
+          {
+            foreignKeyName: "trips_goal_id_fkey";
+            columns: ["goal_id"];
+            isOneToOne: true;
+            referencedRelation: "v_goal_rating_trend";
+            referencedColumns: ["goal_id"];
+          },
+          {
+            foreignKeyName: "trips_goal_id_fkey";
+            columns: ["goal_id"];
+            isOneToOne: true;
+            referencedRelation: "v_rating_divergence";
+            referencedColumns: ["goal_id"];
+          },
         ];
       };
       user_achievements: {
@@ -2580,6 +2692,15 @@ export type Database = {
         };
         Relationships: [];
       };
+      v_goal_rating_trend: {
+        Row: {
+          goal_id: string | null;
+          period_start: string | null;
+          score: number | null;
+          user_id: string | null;
+        };
+        Relationships: [];
+      };
       v_monthly_capacity: {
         Row: {
           base_currency: string | null;
@@ -2704,36 +2825,7 @@ export type Database = {
           rater_count: number | null;
           spread: number | null;
         };
-        Relationships: [
-          {
-            foreignKeyName: "goal_ratings_goal_id_fkey";
-            columns: ["goal_id"];
-            isOneToOne: false;
-            referencedRelation: "goals";
-            referencedColumns: ["id"];
-          },
-          {
-            foreignKeyName: "goal_ratings_goal_id_fkey";
-            columns: ["goal_id"];
-            isOneToOne: false;
-            referencedRelation: "v_goal_affordability";
-            referencedColumns: ["goal_id"];
-          },
-          {
-            foreignKeyName: "goal_ratings_goal_id_fkey";
-            columns: ["goal_id"];
-            isOneToOne: false;
-            referencedRelation: "v_goal_funding";
-            referencedColumns: ["goal_id"];
-          },
-          {
-            foreignKeyName: "goal_ratings_goal_id_fkey";
-            columns: ["goal_id"];
-            isOneToOne: false;
-            referencedRelation: "v_goal_rag";
-            referencedColumns: ["goal_id"];
-          },
-        ];
+        Relationships: [];
       };
       v_timeline_items: {
         Row: {
@@ -2791,6 +2883,20 @@ export type Database = {
             columns: ["goal_id"];
             isOneToOne: true;
             referencedRelation: "v_goal_rag";
+            referencedColumns: ["goal_id"];
+          },
+          {
+            foreignKeyName: "trips_goal_id_fkey";
+            columns: ["goal_id"];
+            isOneToOne: true;
+            referencedRelation: "v_goal_rating_trend";
+            referencedColumns: ["goal_id"];
+          },
+          {
+            foreignKeyName: "trips_goal_id_fkey";
+            columns: ["goal_id"];
+            isOneToOne: true;
+            referencedRelation: "v_rating_divergence";
             referencedColumns: ["goal_id"];
           },
         ];
