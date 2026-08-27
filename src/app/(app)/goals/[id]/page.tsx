@@ -13,6 +13,7 @@ import { FundingSection } from "./funding-section";
 import { GoalStateActions } from "./goal-state-actions";
 import { LedgerSection } from "./ledger-section";
 import { MilestonesSection } from "./milestones-section";
+import { OverrideSection } from "./override-section";
 import { ParticipantsSection } from "./participants-section";
 import { RagBreakdown } from "./rag-breakdown";
 import { TasksSection } from "./tasks-section";
@@ -123,6 +124,7 @@ export default async function GoalDetailPage({
     { data: ledgerEntries, error: ledgerError },
     { data: pots, error: potsError },
     { data: rag, error: ragError },
+    { data: overrideHistory, error: overrideHistoryError },
   ] = await Promise.all([
     // No user_id filter — RLS is the actual gate, and per Schema.MD,
     // ledger entries against a shared goal are visible to every
@@ -144,6 +146,16 @@ export default async function GoalDetailPage({
     // P4.2: app.compute_goal_rag/app.effective_goal_rag, exposed via
     // v_goal_rag (0016) — never recomputed here.
     supabase.from("v_goal_rag").select("*").eq("goal_id", id).maybeSingle(),
+    // P4.3: every past and current override, newest first — 0017's
+    // goals_log_rag_override trigger is what populates this, this page
+    // only ever reads it.
+    supabase
+      .from("rag_override_history")
+      .select(
+        "id, status, reason, set_at, expires_at, ended_at, ended_reason, setter:profiles!rag_override_history_set_by_fkey(display_name)",
+      )
+      .eq("goal_id", id)
+      .order("set_at", { ascending: false }),
   ]);
 
   if (ledgerError) {
@@ -154,6 +166,9 @@ export default async function GoalDetailPage({
   }
   if (ragError || !rag) {
     throw new Error(ragError?.message ?? "Couldn't load this goal's RAG status.");
+  }
+  if (overrideHistoryError) {
+    throw new Error(overrideHistoryError.message);
   }
 
   const [
@@ -255,6 +270,21 @@ export default async function GoalDetailPage({
     ? describeTimeRemaining(goal.target_date, today)
     : null;
 
+  // P4.3: rag_override_history rows, as OverrideSection expects them.
+  // "Someone" only shows up if a set_by profile is somehow missing —
+  // shouldn't happen (set_by is NOT NULL with a real FK), defensive
+  // fallback rather than a crash.
+  const overrideHistoryEntries = (overrideHistory ?? []).map((entry) => ({
+    id: entry.id,
+    status: entry.status,
+    reason: entry.reason,
+    setByName: entry.setter?.display_name ?? "Someone",
+    setAt: entry.set_at,
+    expiresAt: entry.expires_at,
+    endedAt: entry.ended_at,
+    endedReason: entry.ended_reason as "replaced" | "cleared_by_checkin" | null,
+  }));
+
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-8 p-6">
       <div className="flex flex-col gap-3">
@@ -287,6 +317,15 @@ export default async function GoalDetailPage({
           goalTitle={goal.title}
           funding={goal.funding}
           taskCounts={taskCounts}
+        />
+
+        <OverrideSection
+          goalId={goal.id}
+          computedStatus={rag.overall_status ?? "grey"}
+          isLive={rag.is_overridden ?? false}
+          history={overrideHistoryEntries}
+          timezone={timezone}
+          canEdit={canEditGoal}
         />
 
         {goal.description && (

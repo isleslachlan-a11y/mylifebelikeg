@@ -1440,6 +1440,116 @@ export type Database = {
         };
         Relationships: [];
       };
+      rag_override_history: {
+        Row: {
+          created_at: string;
+          ended_at: string | null;
+          ended_reason: string | null;
+          expires_at: string;
+          goal_id: string;
+          id: string;
+          reason: string;
+          set_at: string;
+          set_by: string;
+          status: Database["public"]["Enums"]["rag_status"];
+        };
+        Insert: {
+          created_at?: string;
+          ended_at?: string | null;
+          ended_reason?: string | null;
+          expires_at: string;
+          goal_id: string;
+          id?: string;
+          reason: string;
+          set_at: string;
+          set_by: string;
+          status: Database["public"]["Enums"]["rag_status"];
+        };
+        Update: {
+          created_at?: string;
+          ended_at?: string | null;
+          ended_reason?: string | null;
+          expires_at?: string;
+          goal_id?: string;
+          id?: string;
+          reason?: string;
+          set_at?: string;
+          set_by?: string;
+          status?: Database["public"]["Enums"]["rag_status"];
+        };
+        Relationships: [
+          {
+            foreignKeyName: "rag_override_history_goal_id_fkey";
+            columns: ["goal_id"];
+            isOneToOne: false;
+            referencedRelation: "goals";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "rag_override_history_goal_id_fkey";
+            columns: ["goal_id"];
+            isOneToOne: false;
+            referencedRelation: "v_goal_affordability";
+            referencedColumns: ["goal_id"];
+          },
+          {
+            foreignKeyName: "rag_override_history_goal_id_fkey";
+            columns: ["goal_id"];
+            isOneToOne: false;
+            referencedRelation: "v_goal_funding";
+            referencedColumns: ["goal_id"];
+          },
+          {
+            foreignKeyName: "rag_override_history_goal_id_fkey";
+            columns: ["goal_id"];
+            isOneToOne: false;
+            referencedRelation: "v_goal_rag";
+            referencedColumns: ["goal_id"];
+          },
+          {
+            foreignKeyName: "rag_override_history_set_by_fkey";
+            columns: ["set_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "rag_override_history_set_by_fkey";
+            columns: ["set_by"];
+            isOneToOne: false;
+            referencedRelation: "v_allocation_summary";
+            referencedColumns: ["user_id"];
+          },
+          {
+            foreignKeyName: "rag_override_history_set_by_fkey";
+            columns: ["set_by"];
+            isOneToOne: false;
+            referencedRelation: "v_checkin_streak";
+            referencedColumns: ["user_id"];
+          },
+          {
+            foreignKeyName: "rag_override_history_set_by_fkey";
+            columns: ["set_by"];
+            isOneToOne: false;
+            referencedRelation: "v_financial_horizon";
+            referencedColumns: ["user_id"];
+          },
+          {
+            foreignKeyName: "rag_override_history_set_by_fkey";
+            columns: ["set_by"];
+            isOneToOne: false;
+            referencedRelation: "v_monthly_capacity";
+            referencedColumns: ["user_id"];
+          },
+          {
+            foreignKeyName: "rag_override_history_set_by_fkey";
+            columns: ["set_by"];
+            isOneToOne: false;
+            referencedRelation: "v_user_capacity";
+            referencedColumns: ["user_id"];
+          },
+        ];
+      };
       rag_snapshots: {
         Row: {
           budget_status: Database["public"]["Enums"]["rag_status"];
