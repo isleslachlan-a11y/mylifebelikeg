@@ -62,6 +62,17 @@ describe("humanizeDbError", () => {
     expect(humanizeDbError(error)).toBe("That person is already on this goal.");
   });
 
+  it("maps prevent_dependency_cycle's raised exception, not a named constraint", () => {
+    const error = {
+      message:
+        "Dependency would create a cycle (11111111-1111-1111-1111-111111111111 -> 22222222-2222-2222-2222-222222222222)",
+      details: "",
+    };
+    expect(humanizeDbError(error)).toBe(
+      "That would create a circular dependency.",
+    );
+  });
+
   it("falls back to a generic message and logs the original for unmatched constraints", () => {
     const logSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const error = {

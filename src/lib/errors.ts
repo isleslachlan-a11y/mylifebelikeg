@@ -80,6 +80,16 @@ function extractConstraintName(
   return match?.[1] ?? null;
 }
 
+// Not every user-facing DB error is a named constraint violation —
+// prevent_dependency_cycle (Phase 5) rejects a cycle with a RAISE
+// EXCEPTION, errcode check_violation, naming both task ids in the
+// message rather than a constraint name CONSTRAINT_NAME_RE could ever
+// match. Checked by message content instead, same "never let the raw
+// Postgres message reach the user" rule as the constraint table above —
+// this just has one entry, not a lookup table, since it's the only
+// raised (non-constraint) exception this app surfaces to a form today.
+const CYCLE_MESSAGE_RE = /would create a cycle/i;
+
 /** Map a Postgres/PostgREST error to a user-facing sentence. Logs the original for unmatched cases. */
 export function humanizeDbError(
   error: Pick<PostgrestError, "message" | "details">,
@@ -88,6 +98,10 @@ export function humanizeDbError(
   const message = name ? CONSTRAINT_MESSAGES[name] : undefined;
   if (message) {
     return message;
+  }
+
+  if (CYCLE_MESSAGE_RE.test(error.message)) {
+    return "That would create a circular dependency.";
   }
 
   console.error(

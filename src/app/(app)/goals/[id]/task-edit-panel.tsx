@@ -17,10 +17,31 @@ import { Textarea } from "@/components/ui/textarea";
 import { fromGoalOffset, toGoalOffset } from "@/lib/dates";
 import { COMMON_CURRENCIES, formatMoney, parseMoney } from "@/lib/money";
 import type { Database } from "@/types/database";
+import type { GoalScheduleData } from "./dependency-actions";
+import { TaskDependenciesEditor } from "./task-dependencies-editor";
 import { deleteTask, updateTask, type TaskEditPatch } from "./tasks-actions";
 
 type Task = Database["public"]["Tables"]["tasks"]["Row"];
 type Milestone = Database["public"]["Tables"]["milestones"]["Row"];
+type TaskDependency = Database["public"]["Tables"]["task_dependencies"]["Row"];
+
+/**
+ * "3 days of slack" / "on the critical path" at zero float / "no
+ * dependency network" when float is null (Phase 5 P5.0 brief, verbatim:
+ * "null float means the goal has no dependency network at all — say
+ * that rather than showing '0'"). total_float_days/is_critical are
+ * trigger-derived (app.recompute_goal_schedule) — this only formats
+ * them, never computes anything.
+ */
+function describeFloat(task: Task): string {
+  if (task.total_float_days == null) {
+    return "No dependency network yet — dates come from duration alone.";
+  }
+  if (task.is_critical) {
+    return "On the critical path — no slack.";
+  }
+  return `${task.total_float_days} day${task.total_float_days === 1 ? "" : "s"} of slack.`;
+}
 
 const NO_MILESTONE = "__none__";
 const CURRENCY_RE = /^[A-Z]{3}$/;
@@ -38,9 +59,12 @@ export function TaskEditPanel({
   goalCurrency,
   milestones,
   assignableUsers,
+  allTasks,
+  dependencies,
   onSaved,
   onDeleted,
   onCancel,
+  onGoalDataRefetched,
 }: {
   task: Task;
   goalId: string;
@@ -48,9 +72,15 @@ export function TaskEditPanel({
   goalCurrency: string;
   milestones: Milestone[];
   assignableUsers: { id: string; display_name: string }[];
+  /** Every task on the goal (including this one) — TaskDependenciesEditor's candidate list and predecessor-title lookup. */
+  allTasks: Task[];
+  /** Every edge in the goal's network, not just this task's own. */
+  dependencies: TaskDependency[];
   onSaved: (task: Task) => void;
   onDeleted: () => void;
   onCancel: () => void;
+  /** Replaces the whole tasks+dependencies pair after a dependency change ripples beyond this one task — see dependency-actions.ts's own doc. */
+  onGoalDataRefetched: (data: GoalScheduleData) => void;
 }) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -276,6 +306,16 @@ export function TaskEditPanel({
           />
         </div>
       )}
+
+      <p className="text-muted-foreground text-xs">{describeFloat(task)}</p>
+
+      <TaskDependenciesEditor
+        task={task}
+        goalId={goalId}
+        allTasks={allTasks}
+        dependencies={dependencies}
+        onGoalDataRefetched={onGoalDataRefetched}
+      />
 
       <div className="flex gap-3">
         <div className="flex flex-1 flex-col gap-1.5">

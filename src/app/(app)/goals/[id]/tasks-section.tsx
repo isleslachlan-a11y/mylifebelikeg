@@ -35,6 +35,7 @@ import {
 import { toGoalOffset } from "@/lib/dates";
 import type { Database } from "@/types/database";
 import { AddTaskForm } from "./add-task-form";
+import type { GoalScheduleData } from "./dependency-actions";
 import {
   createTaskQuick,
   deleteTask,
@@ -46,6 +47,7 @@ import { TaskRow } from "./task-row";
 
 type Task = Database["public"]["Tables"]["tasks"]["Row"];
 type Milestone = Database["public"]["Tables"]["milestones"]["Row"];
+type TaskDependency = Database["public"]["Tables"]["task_dependencies"]["Row"];
 type TaskStatus = Database["public"]["Enums"]["task_status"];
 type SortMode = "manual" | "urgency";
 
@@ -92,6 +94,7 @@ export function TasksSection({
   assignableUsers,
   ownerNames,
   initialTasks,
+  initialDependencies,
 }: {
   goalId: string;
   /** Computed once per request via todayInZone — never new Date() here. */
@@ -104,8 +107,10 @@ export function TasksSection({
   assignableUsers: { id: string; display_name: string }[];
   ownerNames: Record<string, string>;
   initialTasks: Task[];
+  initialDependencies: TaskDependency[];
 }) {
   const [tasks, setTasks] = useState(initialTasks);
+  const [dependencies, setDependencies] = useState(initialDependencies);
   const [error, setError] = useState<string | null>(null);
   const [newTitle, setNewTitle] = useState("");
   const [isPending, startTransition] = useTransition();
@@ -147,6 +152,18 @@ export function TasksSection({
 
   function updateOne(id: string, next: Task) {
     setTasks((prev) => prev.map((t) => (t.id === id ? next : t)));
+  }
+
+  /**
+   * A dependency change ripples via trigger to computed_start/
+   * computed_end/total_float_days/is_critical on tasks nobody directly
+   * touched (Phase 5 P5.0 brief) — replaces the whole tasks+dependencies
+   * pair with what dependency-actions.ts read back after the change,
+   * rather than patching one task the way every other handler here does.
+   */
+  function handleGoalDataRefetched(data: GoalScheduleData) {
+    setTasks(data.tasks);
+    setDependencies(data.dependencies);
   }
 
   function handleToggleComplete(task: Task, completed: boolean) {
@@ -266,10 +283,13 @@ export function TasksSection({
         goalCurrency={goalCurrency}
         milestones={milestones}
         assignableUsers={assignableUsers}
+        allTasks={tasks}
+        dependencies={dependencies}
         onToggleComplete={(completed) => handleToggleComplete(task, completed)}
         onStatusChange={(status) => handleStatusChange(task, status)}
         onSaved={(saved) => updateOne(task.id, saved)}
         onDeleted={() => handleDelete(task.id)}
+        onGoalDataRefetched={handleGoalDataRefetched}
       />
     );
   }

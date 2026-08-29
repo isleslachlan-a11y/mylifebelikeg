@@ -122,6 +122,23 @@ export default async function GoalDetailPage({
     throw new Error(tasksError.message);
   }
 
+  // Phase 5 (P5.0): every edge in this goal's dependency network. Scoped
+  // by successor_task_id — dependencies never cross goals (brief: "one
+  // goal's network at a time"), so a real edge's predecessor is always
+  // one of the same goal's tasks too.
+  const taskIds = (tasks ?? []).map((t) => t.id);
+  const { data: dependencies, error: dependenciesError } =
+    taskIds.length > 0
+      ? await supabase
+          .from("task_dependencies")
+          .select("*")
+          .in("successor_task_id", taskIds)
+      : { data: [], error: null };
+
+  if (dependenciesError) {
+    throw new Error(dependenciesError.message);
+  }
+
   const [
     { data: ledgerEntries, error: ledgerError },
     { data: pots, error: potsError },
@@ -537,6 +554,7 @@ export default async function GoalDetailPage({
           assignableUsers={assignableUsers}
           ownerNames={ownerNames}
           initialTasks={tasks ?? []}
+          initialDependencies={dependencies ?? []}
         />
       </section>
 

@@ -19,10 +19,12 @@ import {
 } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 import type { Database } from "@/types/database";
+import type { GoalScheduleData } from "./dependency-actions";
 import { TaskEditPanel } from "./task-edit-panel";
 
 type Task = Database["public"]["Tables"]["tasks"]["Row"];
 type Milestone = Database["public"]["Tables"]["milestones"]["Row"];
+type TaskDependency = Database["public"]["Tables"]["task_dependencies"]["Row"];
 type TaskStatus = Database["public"]["Enums"]["task_status"];
 
 const NON_DONE_STATUSES: Exclude<TaskStatus, "done">[] = [
@@ -57,10 +59,13 @@ export function TaskRow({
   goalCurrency,
   milestones,
   assignableUsers,
+  allTasks,
+  dependencies,
   onToggleComplete,
   onStatusChange,
   onSaved,
   onDeleted,
+  onGoalDataRefetched,
 }: {
   task: Task;
   /** Computed once per request via todayInZone — never new Date() here. */
@@ -72,10 +77,13 @@ export function TaskRow({
   goalCurrency: string;
   milestones: Milestone[];
   assignableUsers: { id: string; display_name: string }[];
+  allTasks: Task[];
+  dependencies: TaskDependency[];
   onToggleComplete: (completed: boolean) => void;
   onStatusChange: (status: Exclude<TaskStatus, "done">) => void;
   onSaved: (task: Task) => void;
   onDeleted: () => void;
+  onGoalDataRefetched: (data: GoalScheduleData) => void;
 }) {
   const {
     attributes,
@@ -208,12 +216,15 @@ export function TaskRow({
           goalCurrency={goalCurrency}
           milestones={milestones}
           assignableUsers={assignableUsers}
+          allTasks={allTasks}
+          dependencies={dependencies}
           onSaved={(patch) => {
             onSaved(patch);
             setIsExpanded(false);
           }}
           onDeleted={onDeleted}
           onCancel={() => setIsExpanded(false)}
+          onGoalDataRefetched={onGoalDataRefetched}
         />
       )}
     </li>
