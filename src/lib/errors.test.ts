@@ -73,6 +73,81 @@ describe("humanizeDbError", () => {
     );
   });
 
+  it("maps the someday-item unsplash attribution violation", () => {
+    const error = {
+      message:
+        'new row for relation "someday_items" violates check constraint "unsplash_needs_attribution"',
+      details: "",
+    };
+    expect(humanizeDbError(error)).toBe(
+      "That photo is missing attribution — try picking it again.",
+    );
+  });
+
+  it("maps a trip leg with matching endpoints", () => {
+    const error = {
+      message:
+        'new row for relation "trip_legs" violates check constraint "leg_endpoints_differ"',
+      details: "",
+    };
+    expect(humanizeDbError(error)).toBe(
+      "A leg can't start and end at the same stop.",
+    );
+  });
+
+  it("maps app.enforce_trip_goal_kind's raised exception, not a named constraint", () => {
+    const error = {
+      message: "trips.goal_id must reference a goal with kind = 'trip'",
+      details: "",
+    };
+    expect(humanizeDbError(error)).toBe("That goal isn't a trip.");
+  });
+
+  it("maps app.validate_avatar's locked-preset exception", () => {
+    const error = {
+      message: "Avatar preset outfit_explorer is not unlocked yet",
+      details: "",
+    };
+    expect(humanizeDbError(error)).toBe("That option isn't unlocked yet.");
+  });
+
+  it("maps app.validate_avatar's unknown-slot exception", () => {
+    const error = { message: "Unknown avatar slot: hat", details: "" };
+    expect(humanizeDbError(error)).toBe(
+      "That avatar option isn't valid — refresh and try again.",
+    );
+  });
+
+  it("maps app.validate_avatar's unknown-preset exception", () => {
+    const error = {
+      message: "Unknown avatar preset: base_does_not_exist",
+      details: "",
+    };
+    expect(humanizeDbError(error)).toBe(
+      "That avatar option isn't valid — refresh and try again.",
+    );
+  });
+
+  it("maps app.validate_avatar's wrong-category exception", () => {
+    const error = {
+      message: "Preset pose_standing belongs to category pose, not outfit",
+      details: "",
+    };
+    expect(humanizeDbError(error)).toBe(
+      "That avatar option isn't valid — refresh and try again.",
+    );
+  });
+
+  it("maps app.enforce_pin_limit's fourth-pin exception", () => {
+    const error = {
+      message: "You can pin at most three achievements",
+      details: "",
+    };
+    expect(humanizeDbError(error)).toBe(
+      "You can only pin three achievements — unpin one first.",
+    );
+  });
+
   it("falls back to a generic message and logs the original for unmatched constraints", () => {
     const logSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const error = {

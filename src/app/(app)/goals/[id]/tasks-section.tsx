@@ -33,7 +33,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toGoalOffset } from "@/lib/dates";
-import type { Database } from "@/types/database";
+import type { Database, Json } from "@/types/database";
 import { AddTaskForm } from "./add-task-form";
 import type { GoalScheduleData } from "./dependency-actions";
 import {
@@ -93,6 +93,7 @@ export function TasksSection({
   milestones,
   assignableUsers,
   ownerNames,
+  ownerAvatars,
   initialTasks,
   initialDependencies,
 }: {
@@ -106,6 +107,8 @@ export function TasksSection({
   milestones: Milestone[];
   assignableUsers: { id: string; display_name: string }[];
   ownerNames: Record<string, string>;
+  /** Same keys as ownerNames — P7.3: "avatars appear throughout the app... task owners." */
+  ownerAvatars: Record<string, Json>;
   initialTasks: Task[];
   initialDependencies: TaskDependency[];
 }) {
@@ -278,6 +281,7 @@ export function TasksSection({
         today={today}
         canEdit={canEdit}
         ownerName={ownerNames[task.owner_id] ?? "Unknown"}
+        ownerAvatar={ownerAvatars[task.owner_id] ?? null}
         goalId={goalId}
         goalStartDate={goalStartDate}
         goalCurrency={goalCurrency}

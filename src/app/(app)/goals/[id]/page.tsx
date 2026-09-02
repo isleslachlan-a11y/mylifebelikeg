@@ -7,7 +7,13 @@ import { GoalTimeline } from "@/components/timeline/goal-timeline";
 import { describeTimeRemaining, formatDate, todayInZone } from "@/lib/dates";
 import { formatMoney } from "@/lib/money";
 import { buildRatingTrend } from "@/lib/rating-trend";
+import {
+  describeFloatSummary,
+  describeProjectedEnd,
+  summarizeFloat,
+} from "@/lib/schedule-projection";
 import { createClient } from "@/lib/supabase/server";
+import type { Json } from "@/types/database";
 import { goalStateLabel } from "../goal-state-label";
 import { DeleteGoalButton } from "./delete-goal-button";
 import { FundingSection } from "./funding-section";
@@ -18,6 +24,7 @@ import { MomentumSection } from "./momentum-section";
 import { OverrideSection } from "./override-section";
 import { ParticipantsSection } from "./participants-section";
 import { RagBreakdown } from "./rag-breakdown";
+import { SlipPreview } from "./slip-preview";
 import { TasksSection } from "./tasks-section";
 
 export default async function GoalDetailPage({
@@ -56,20 +63,29 @@ export default async function GoalDetailPage({
   const [
     { data: ownerProfile },
     { data: participants, error: participantsError },
+    { data: trip },
   ] = await Promise.all([
     supabase
       .from("profiles")
-      .select("handle, display_name")
+      .select("handle, display_name, avatar")
       .eq("id", goal.owner_id)
       .single(),
     supabase
       .from("goal_participants")
       .select(
-        "id, user_id, role, pledged_amount_minor, pledged_currency, monthly_allocation_minor, pot_id, profile:profiles!goal_participants_user_id_fkey(handle, display_name)",
+        "id, user_id, role, pledged_amount_minor, pledged_currency, monthly_allocation_minor, pot_id, profile:profiles!goal_participants_user_id_fkey(handle, display_name, avatar)",
       )
       .eq("goal_id", id)
       .is("removed_at", null)
       .order("joined_at", { ascending: true }),
+    // P6.3: only meaningful for kind === "trip" — harmless (just finds
+    // nothing) to always run rather than branching the query on kind.
+    supabase
+      .from("trips")
+      .select("id")
+      .eq("goal_id", id)
+      .is("deleted_at", null)
+      .maybeSingle(),
   ]);
 
   if (participantsError) {
@@ -147,6 +163,7 @@ export default async function GoalDetailPage({
     { data: ragSnapshots, error: ragSnapshotsError },
     { data: divergenceRows, error: divergenceError },
     { data: ratingTrendRows, error: ratingTrendError },
+    { data: projectedEndRow, error: projectedEndError },
   ] = await Promise.all([
     // No user_id filter — RLS is the actual gate, and per Schema.MD,
     // ledger entries against a shared goal are visible to every
@@ -203,6 +220,17 @@ export default async function GoalDetailPage({
       .from("v_goal_rating_trend")
       .select("user_id, period_start, score")
       .eq("goal_id", id),
+    // P5.2: app.goal_projected_end (0021), exposed via v_goal_projected_end
+    // (0023) — the latest computed_end across the goal's own tasks. Never
+    // recomputed here, same "read the view, don't re-derive it" rule
+    // v_goal_rag above already follows. maybeSingle: a goal can have zero
+    // tasks (nothing to project yet), which is a real, unremarkable state,
+    // not an error.
+    supabase
+      .from("v_goal_projected_end")
+      .select("projected_end")
+      .eq("goal_id", id)
+      .maybeSingle(),
   ]);
 
   if (ledgerError) {
@@ -212,7 +240,9 @@ export default async function GoalDetailPage({
     throw new Error(potsError.message);
   }
   if (ragError || !rag) {
-    throw new Error(ragError?.message ?? "Couldn't load this goal's RAG status.");
+    throw new Error(
+      ragError?.message ?? "Couldn't load this goal's RAG status.",
+    );
   }
   if (overrideHistoryError) {
     throw new Error(overrideHistoryError.message);
@@ -225,6 +255,9 @@ export default async function GoalDetailPage({
   }
   if (ratingTrendError) {
     throw new Error(ratingTrendError.message);
+  }
+  if (projectedEndError) {
+    throw new Error(projectedEndError.message);
   }
 
   const [
@@ -300,8 +333,15 @@ export default async function GoalDetailPage({
   const ownerNames: Record<string, string> = {
     [goal.owner_id]: ownerProfile?.display_name ?? "Owner",
   };
+  // P7.3: "avatars appear throughout the app... task owners" (brief) —
+  // same shape as ownerNames, keyed the same way, so task-row.tsx can
+  // look both up together for one owner_id.
+  const ownerAvatars: Record<string, Json> = {
+    [goal.owner_id]: ownerProfile?.avatar ?? null,
+  };
   for (const p of participants ?? []) {
     ownerNames[p.user_id] = p.profile.display_name;
+    ownerAvatars[p.user_id] = p.profile.avatar;
   }
 
   // Raw task counts (cancelled excluded), for the schedule breakdown's
@@ -325,6 +365,25 @@ export default async function GoalDetailPage({
   const targetDateDisplay = goal.target_date
     ? describeTimeRemaining(goal.target_date, today)
     : null;
+
+  // P5.2: "Projected 14 March, target 1 March — 13 days over." — null
+  // (rendered as nothing) when there's no projection yet, i.e. no task
+  // on the goal has dates at all.
+  const projectedEndText = describeProjectedEnd(
+    projectedEndRow?.projected_end ?? null,
+    goal.target_date,
+    (d) => formatDate(d, timezone),
+  );
+
+  // Float summary ("3 tasks have slack; 4 are on the critical path.") and
+  // the slip-preview task picker both read directly off `tasks` — the
+  // same CPM-derived is_critical/total_float_days columns
+  // task-edit-panel.tsx's own per-task float line already trusts, not
+  // recomputed here.
+  const floatSummary = summarizeFloat(tasks ?? []);
+  const criticalTasks = (tasks ?? [])
+    .filter((t) => t.is_critical)
+    .map((t) => ({ id: t.id, title: t.title }));
 
   // P4.3: rag_override_history rows, as OverrideSection expects them.
   // "Someone" only shows up if a set_by profile is somehow missing —
@@ -407,7 +466,14 @@ export default async function GoalDetailPage({
               {goal.life_area.name}
             </Badge>
           )}
-          {goal.kind === "trip" && <Badge variant="outline">Trip</Badge>}
+          {goal.kind === "trip" &&
+            (trip ? (
+              <Badge variant="outline" asChild>
+                <Link href={`/trips/${trip.id}`}>Trip itinerary →</Link>
+              </Badge>
+            ) : (
+              <Badge variant="outline">Trip</Badge>
+            ))}
         </div>
 
         <RagBreakdown
@@ -469,6 +535,15 @@ export default async function GoalDetailPage({
         ) : (
           <p className="text-muted-foreground text-sm">No dates set.</p>
         )}
+
+        {/* P5.2: app.goal_projected_end (0021/0023) — the CPM scheduler's
+            own honest read of where the tasks actually land, right beside
+            the target date it's measured against (brief, verbatim
+            example: "Projected 14 March, target 1 March — 13 days
+            over."). A self-contained sentence, not a dt/dd pair — it
+            already restates the target date itself, so pairing it with
+            its own label would just repeat "Projected" twice. */}
+        {projectedEndText && <p className="text-sm">{projectedEndText}</p>}
 
         {/* The three end states mean different things — completed is "we
             did it", archived is "putting this aside", abandoned is "we're
@@ -553,10 +628,30 @@ export default async function GoalDetailPage({
           milestones={milestones ?? []}
           assignableUsers={assignableUsers}
           ownerNames={ownerNames}
+          ownerAvatars={ownerAvatars}
           initialTasks={tasks ?? []}
           initialDependencies={dependencies ?? []}
         />
       </section>
+
+      {/* P5.2: only renders once there's an actual dependency network —
+          floatSummary is null for a goal whose tasks are all still on
+          the simple offset-only path (0021), same "nothing to show yet"
+          reasoning task-edit-panel.tsx's own per-task float line
+          already follows one level down. */}
+      {floatSummary && (
+        <section className="flex flex-col gap-2">
+          <h2 className="font-display text-lg">Schedule</h2>
+          <p className="text-sm">{describeFloatSummary(floatSummary)}</p>
+          {canEditGoal && (
+            <SlipPreview
+              criticalTasks={criticalTasks}
+              currentProjectedEnd={projectedEndRow?.projected_end ?? null}
+              formatDate={(d) => formatDate(d, timezone)}
+            />
+          )}
+        </section>
+      )}
 
       {goal.funding !== "none" && (
         <section className="flex flex-col gap-2">

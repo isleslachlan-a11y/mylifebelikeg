@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
 
+import {
+  routeOrthogonal,
+  selectCriticalPathEdges,
+  type AnchorRect,
+  type DependencyEdgeInput,
+} from "./critical-path";
 import { groupIntoLanes, type LaneableItem, type LifeAreaMeta } from "./lanes";
 import { createScale } from "./scale";
 import { assignSubRows, type StackableItem } from "./stacking";
@@ -325,5 +331,59 @@ describe("PERF-BUDGET.md: stacking bucket exactly as specified (50 items, one la
     );
     // PERF-BUDGET.md target <5ms, ceiling 15ms.
     expect(elapsedMs).toBeLessThan(15);
+  });
+});
+
+describe("PERF-BUDGET.md: critical path overlay routing (P5.1) — same 50 tasks/30 edges bucket as the scheduler row", () => {
+  it("selectCriticalPathEdges + routeOrthogonal for a 50-task serial chain, 30 edges, spread across lanes", () => {
+    // Mirrors PERF-BUDGET.md's own critical-path scheduler methodology
+    // (T1 -> T2 -> ... -> T30, plus T1 -> T30 directly) rather than a
+    // fresh fixture — same "worst-case-ish... a long chain" shape,
+    // reused so this row and the scheduler row above it are actually
+    // comparable. Rects are spread across 6 lanes (item i in lane
+    // i % 6) so the elbow-routing branch (different `cross` values) is
+    // exercised throughout, not just the straight-segment common case.
+    const rects = new Map<string, AnchorRect>();
+    for (let i = 0; i < 50; i++) {
+      const lane = i % 6;
+      rects.set(`t${i}`, {
+        primaryStart: i * 20,
+        primaryEnd: i * 20 + 15,
+        cross: lane * 100 + 40,
+      });
+    }
+    const dependencies: DependencyEdgeInput[] = [];
+    for (let i = 0; i < 29; i++) {
+      dependencies.push({
+        id: `e${i}`,
+        predecessor_task_id: `t${i}`,
+        successor_task_id: `t${i + 1}`,
+      });
+    }
+    dependencies.push({
+      id: "e-t0-t29",
+      predecessor_task_id: "t0",
+      successor_task_id: "t29",
+    });
+
+    const start = performance.now();
+    const edges = selectCriticalPathEdges(dependencies, new Set(rects.keys()));
+    for (const edge of edges) {
+      const from = rects.get(edge.predecessorTaskId)!;
+      const to = rects.get(edge.successorTaskId)!;
+      routeOrthogonal(from, to);
+    }
+    const elapsedMs = performance.now() - start;
+
+    console.log(
+      `[perf] selectCriticalPathEdges + routeOrthogonal x ${edges.length} edges (50 rects): ${elapsedMs.toFixed(3)}ms`,
+    );
+    expect(edges).toHaveLength(30);
+    // This measures the pure routing/filtering cost only — the actual
+    // SVG paint isn't measurable from Node (see PERF-BUDGET.md's
+    // "critical path overlay render" row and its caveat). Generous
+    // budget for the same reason the stacking-cost tests above are: this
+    // should be a small fraction of a 16ms frame, not a tight ceiling.
+    expect(elapsedMs).toBeLessThan(16);
   });
 });

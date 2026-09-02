@@ -1,3 +1,5 @@
+import type { PostgrestError } from "@supabase/supabase-js";
+
 import type { createClient } from "@/lib/supabase/server";
 import { isOverdue, toGoalOffset, todayInZone } from "@/lib/dates";
 import { isUndefinedGoal } from "@/lib/rag";
@@ -10,6 +12,28 @@ type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
 const DEBOUNCE_MS = 60 * 60 * 1000; // one hour, per brief
 const STREAK_MILESTONES = [4, 12, 26, 52];
 const SEVERITY: Record<string, number> = { green: 1, amber: 2, red: 3 };
+
+/**
+ * P5.5's Supabase-call audit: every query below already treats a
+ * failure as "found nothing" (a bare `?? []` or `if (!x) return`)
+ * rather than crashing — the right behaviour for a best-effort
+ * background pass that must never block whatever real action (a
+ * check-in submit, a dashboard load) triggered it. What was missing was
+ * any record that a failure happened at all: a silently-empty result
+ * and a genuinely-empty one were indistinguishable server-side. This
+ * wraps every query so a real failure is at least observable, without
+ * changing what the caller does with the result — `logged(...)` is a
+ * drop-in replacement for reading `.data` off the awaited query.
+ */
+function logged<T>(
+  result: { data: T; error: PostgrestError | null },
+  context: string,
+): T {
+  if (result.error) {
+    console.error(`evaluateLlamaTriggers: ${context} failed`, result.error);
+  }
+  return result.data;
+}
 
 /**
  * The whole reason the inbox doesn't fill with sixty copies of the same
@@ -30,16 +54,19 @@ async function hasUndismissedMessage(
   resourceType: string,
   resourceId: string,
 ): Promise<boolean> {
-  const { data } = await supabase
-    .from("llama_messages")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("trigger_code", trigger)
-    .eq("resource_type", resourceType)
-    .eq("resource_id", resourceId)
-    .is("dismissed_at", null)
-    .limit(1)
-    .maybeSingle();
+  const data = logged(
+    await supabase
+      .from("llama_messages")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("trigger_code", trigger)
+      .eq("resource_type", resourceType)
+      .eq("resource_id", resourceId)
+      .is("dismissed_at", null)
+      .limit(1)
+      .maybeSingle(),
+    "hasUndismissedMessage",
+  );
   return data != null;
 }
 
@@ -64,16 +91,19 @@ async function hasReportedSince(
   resourceId: string,
   sinceIso: string,
 ): Promise<boolean> {
-  const { data } = await supabase
-    .from("llama_messages")
-    .select("id")
-    .eq("user_id", userId)
-    .in("trigger_code", triggers)
-    .eq("resource_type", resourceType)
-    .eq("resource_id", resourceId)
-    .gte("created_at", sinceIso)
-    .limit(1)
-    .maybeSingle();
+  const data = logged(
+    await supabase
+      .from("llama_messages")
+      .select("id")
+      .eq("user_id", userId)
+      .in("trigger_code", triggers)
+      .eq("resource_type", resourceType)
+      .eq("resource_id", resourceId)
+      .gte("created_at", sinceIso)
+      .limit(1)
+      .maybeSingle(),
+    "hasReportedSince",
+  );
   return data != null;
 }
 
@@ -90,19 +120,25 @@ async function evaluateGoalStatusChanges(
   supabase: SupabaseServerClient,
   userId: string,
 ): Promise<void> {
-  const { data: goals } = await supabase
-    .from("goals")
-    .select("id, title")
-    .eq("state", "active")
-    .is("deleted_at", null);
+  const goals = logged(
+    await supabase
+      .from("goals")
+      .select("id, title")
+      .eq("state", "active")
+      .is("deleted_at", null),
+    "evaluateGoalStatusChanges: goals",
+  );
 
   for (const goal of goals ?? []) {
-    const { data: snapshots } = await supabase
-      .from("rag_snapshots")
-      .select("computed_at, overall_status")
-      .eq("goal_id", goal.id)
-      .order("computed_at", { ascending: false })
-      .limit(2);
+    const snapshots = logged(
+      await supabase
+        .from("rag_snapshots")
+        .select("computed_at, overall_status")
+        .eq("goal_id", goal.id)
+        .order("computed_at", { ascending: false })
+        .limit(2),
+      "evaluateGoalStatusChanges: snapshots",
+    );
 
     if (!snapshots || snapshots.length < 2) continue;
     const latest = snapshots[0]!;
@@ -110,7 +146,11 @@ async function evaluateGoalStatusChanges(
 
     const newSeverity = SEVERITY[latest.overall_status];
     const oldSeverity = SEVERITY[previous.overall_status];
-    if (newSeverity == null || oldSeverity == null || newSeverity === oldSeverity) {
+    if (
+      newSeverity == null ||
+      oldSeverity == null ||
+      newSeverity === oldSeverity
+    ) {
       continue;
     }
 
@@ -147,20 +187,26 @@ async function evaluateGoalUndefined(
   supabase: SupabaseServerClient,
   userId: string,
 ): Promise<void> {
-  const { data: goals } = await supabase
-    .from("goals")
-    .select("id, title")
-    .eq("state", "active")
-    .is("deleted_at", null);
+  const goals = logged(
+    await supabase
+      .from("goals")
+      .select("id, title")
+      .eq("state", "active")
+      .is("deleted_at", null),
+    "evaluateGoalUndefined: goals",
+  );
   if (!goals || goals.length === 0) return;
 
-  const { data: ragRows } = await supabase
-    .from("v_goal_rag")
-    .select("goal_id, inputs")
-    .in(
-      "goal_id",
-      goals.map((g) => g.id),
-    );
+  const ragRows = logged(
+    await supabase
+      .from("v_goal_rag")
+      .select("goal_id, inputs")
+      .in(
+        "goal_id",
+        goals.map((g) => g.id),
+      ),
+    "evaluateGoalUndefined: ragRows",
+  );
   const ragByGoal = new Map(
     (ragRows ?? [])
       .filter((r) => r.goal_id != null)
@@ -171,7 +217,15 @@ async function evaluateGoalUndefined(
     const rag = ragByGoal.get(goal.id);
     if (!rag || !isUndefinedGoal(rag)) continue;
 
-    if (await hasUndismissedMessage(supabase, userId, "goal_undefined", "goal", goal.id)) {
+    if (
+      await hasUndismissedMessage(
+        supabase,
+        userId,
+        "goal_undefined",
+        "goal",
+        goal.id,
+      )
+    ) {
       continue;
     }
     await emitLlamaMessage(
@@ -189,15 +243,24 @@ async function evaluateTaskOverdue(
   userId: string,
   today: string,
 ): Promise<void> {
-  const [{ data: tasks }, { data: activeGoals }] = await Promise.all([
+  const [tasksResult, activeGoalsResult] = await Promise.all([
     supabase
       .from("tasks")
       .select("id, title, goal_id, status, computed_end")
       .eq("owner_id", userId)
       .is("deleted_at", null)
       .not("computed_end", "is", null),
-    supabase.from("goals").select("id").eq("state", "active").is("deleted_at", null),
+    supabase
+      .from("goals")
+      .select("id")
+      .eq("state", "active")
+      .is("deleted_at", null),
   ]);
+  const tasks = logged(tasksResult, "evaluateTaskOverdue: tasks");
+  const activeGoals = logged(
+    activeGoalsResult,
+    "evaluateTaskOverdue: activeGoals",
+  );
 
   const activeGoalIds = new Set((activeGoals ?? []).map((g) => g.id));
 
@@ -206,7 +269,15 @@ async function evaluateTaskOverdue(
     if (task.status === "done" || task.status === "cancelled") continue;
     if (!task.computed_end || !isOverdue(task.computed_end, today)) continue;
 
-    if (await hasUndismissedMessage(supabase, userId, "task_overdue", "task", task.id)) {
+    if (
+      await hasUndismissedMessage(
+        supabase,
+        userId,
+        "task_overdue",
+        "task",
+        task.id,
+      )
+    ) {
       continue;
     }
     const daysOverdue = toGoalOffset(today, task.computed_end);
@@ -232,24 +303,35 @@ async function evaluateBudgetExceeded(
   supabase: SupabaseServerClient,
   userId: string,
 ): Promise<void> {
-  const { data: goals } = await supabase
-    .from("goals")
-    .select("id, title, target_amount_minor, created_at, start_date, target_date")
-    .eq("state", "active")
-    .eq("funding", "spend_against")
-    .is("deleted_at", null);
+  const goals = logged(
+    await supabase
+      .from("goals")
+      .select(
+        "id, title, target_amount_minor, created_at, start_date, target_date",
+      )
+      .eq("state", "active")
+      .eq("funding", "spend_against")
+      .is("deleted_at", null),
+    "evaluateBudgetExceeded: goals",
+  );
   if (!goals || goals.length === 0) return;
 
-  const { data: fundingRows } = await supabase
-    .from("v_goal_funding")
-    .select("goal_id, spent_minor")
-    .in(
-      "goal_id",
-      goals.map((g) => g.id),
-    );
+  const fundingRows = logged(
+    await supabase
+      .from("v_goal_funding")
+      .select("goal_id, spent_minor")
+      .in(
+        "goal_id",
+        goals.map((g) => g.id),
+      ),
+    "evaluateBudgetExceeded: fundingRows",
+  );
   const fundingByGoal = new Map(
     (fundingRows ?? [])
-      .filter((f): f is { goal_id: string; spent_minor: number | null } => f.goal_id != null)
+      .filter(
+        (f): f is { goal_id: string; spent_minor: number | null } =>
+          f.goal_id != null,
+      )
       .map((f) => [f.goal_id, f]),
   );
 
@@ -265,7 +347,15 @@ async function evaluateBudgetExceeded(
     });
     if (elapsedPct == null) continue;
 
-    if (await hasUndismissedMessage(supabase, userId, "budget_exceeded", "goal", goal.id)) {
+    if (
+      await hasUndismissedMessage(
+        supabase,
+        userId,
+        "budget_exceeded",
+        "goal",
+        goal.id,
+      )
+    ) {
       continue;
     }
     await emitLlamaMessage(
@@ -281,31 +371,122 @@ async function evaluateBudgetExceeded(
   }
 }
 
+/**
+ * goal_projected_late (P5.2) — `v_goal_projected_end` (0021/0023's
+ * `app.goal_projected_end`, the CPM scheduler's own honest read of
+ * where the tasks actually land) run past the goal's own `target_date`.
+ * The schedule/money pair to `budget_exceeded`'s money-side trigger:
+ * same "the number says so, plainly" shape, one dimension over. A goal
+ * with no `target_date` has nothing to be late against and is skipped —
+ * "projected end" alone isn't a problem, only "later than what was
+ * promised" is.
+ */
+async function evaluateGoalProjectedLate(
+  supabase: SupabaseServerClient,
+  userId: string,
+): Promise<void> {
+  const goals = logged(
+    await supabase
+      .from("goals")
+      .select("id, title, target_date")
+      .eq("state", "active")
+      .is("deleted_at", null)
+      .not("target_date", "is", null),
+    "evaluateGoalProjectedLate: goals",
+  );
+  if (!goals || goals.length === 0) return;
+
+  const projectedRows = logged(
+    await supabase
+      .from("v_goal_projected_end")
+      .select("goal_id, projected_end")
+      .in(
+        "goal_id",
+        goals.map((g) => g.id),
+      ),
+    "evaluateGoalProjectedLate: projectedRows",
+  );
+  const projectedByGoal = new Map(
+    (projectedRows ?? [])
+      .filter(
+        (r): r is { goal_id: string; projected_end: string } =>
+          r.goal_id != null && r.projected_end != null,
+      )
+      .map((r) => [r.goal_id, r.projected_end]),
+  );
+
+  for (const goal of goals) {
+    if (!goal.target_date) continue;
+    const projectedEnd = projectedByGoal.get(goal.id);
+    if (!projectedEnd) continue; // no tasks yet, or none with dates — nothing projected
+
+    const daysLate = toGoalOffset(projectedEnd, goal.target_date);
+    if (daysLate <= 0) continue;
+
+    if (
+      await hasUndismissedMessage(
+        supabase,
+        userId,
+        "goal_projected_late",
+        "goal",
+        goal.id,
+      )
+    ) {
+      continue;
+    }
+    await emitLlamaMessage(
+      userId,
+      "goal_projected_late",
+      { goalTitle: goal.title, daysLate },
+      { type: "goal", id: goal.id },
+    );
+  }
+}
+
 /** checkin_due — the current period is open, unsubmitted, and ends within 2 days. */
 async function evaluateCheckinDue(
   supabase: SupabaseServerClient,
   userId: string,
   today: string,
 ): Promise<void> {
-  const { data: periodRows } = await supabase.rpc("current_checkin_period");
+  const periodRows = logged(
+    await supabase.rpc("current_checkin_period"),
+    "evaluateCheckinDue: periodRows",
+  );
   const period = periodRows?.[0];
   if (!period) return;
 
   const daysLeft = toGoalOffset(period.period_end, today);
   if (daysLeft < 0 || daysLeft > 2) return;
 
-  const { data: checkIn } = await supabase
-    .from("check_ins")
-    .select("submitted_at")
-    .eq("user_id", userId)
-    .eq("period_start", period.period_start)
-    .maybeSingle();
+  const checkIn = logged(
+    await supabase
+      .from("check_ins")
+      .select("submitted_at")
+      .eq("user_id", userId)
+      .eq("period_start", period.period_start)
+      .maybeSingle(),
+    "evaluateCheckinDue: checkIn",
+  );
   if (checkIn?.submitted_at) return;
 
-  if (await hasUndismissedMessage(supabase, userId, "checkin_due", "profile", userId)) {
+  if (
+    await hasUndismissedMessage(
+      supabase,
+      userId,
+      "checkin_due",
+      "profile",
+      userId,
+    )
+  ) {
     return;
   }
-  await emitLlamaMessage(userId, "checkin_due", { daysLeft }, { type: "profile", id: userId });
+  await emitLlamaMessage(
+    userId,
+    "checkin_due",
+    { daysLeft },
+    { type: "profile", id: userId },
+  );
 }
 
 /** checkin_streak — hits exactly 4, 12, 26, or 52 (app.checkin_streak via v_checkin_streak, 0015). */
@@ -313,18 +494,34 @@ async function evaluateCheckinStreak(
   supabase: SupabaseServerClient,
   userId: string,
 ): Promise<void> {
-  const { data: streakRow } = await supabase
-    .from("v_checkin_streak")
-    .select("streak")
-    .eq("user_id", userId)
-    .maybeSingle();
+  const streakRow = logged(
+    await supabase
+      .from("v_checkin_streak")
+      .select("streak")
+      .eq("user_id", userId)
+      .maybeSingle(),
+    "evaluateCheckinStreak: streakRow",
+  );
   const streak = streakRow?.streak;
   if (streak == null || !STREAK_MILESTONES.includes(streak)) return;
 
-  if (await hasUndismissedMessage(supabase, userId, "checkin_streak", "profile", userId)) {
+  if (
+    await hasUndismissedMessage(
+      supabase,
+      userId,
+      "checkin_streak",
+      "profile",
+      userId,
+    )
+  ) {
     return;
   }
-  await emitLlamaMessage(userId, "checkin_streak", { weeks: streak }, { type: "profile", id: userId });
+  await emitLlamaMessage(
+    userId,
+    "checkin_streak",
+    { weeks: streak },
+    { type: "profile", id: userId },
+  );
 }
 
 /** capacity_exceeded — active goal count at or over the limit (P1.7's `>=`, not v_user_capacity.over_limit's strict `>` — see this file's history in goals/actions.ts). */
@@ -332,22 +529,278 @@ async function evaluateCapacityExceeded(
   supabase: SupabaseServerClient,
   userId: string,
 ): Promise<void> {
-  const { data: capacity } = await supabase
-    .from("v_user_capacity")
-    .select("active_goal_count, active_goal_limit")
-    .eq("user_id", userId)
-    .maybeSingle();
+  const capacity = logged(
+    await supabase
+      .from("v_user_capacity")
+      .select("active_goal_count, active_goal_limit")
+      .eq("user_id", userId)
+      .maybeSingle(),
+    "evaluateCapacityExceeded: capacity",
+  );
   if (!capacity) return;
 
   const count = capacity.active_goal_count ?? 0;
   const limit = capacity.active_goal_limit ?? 0;
   if (limit <= 0 || count < limit) return;
 
-  if (await hasUndismissedMessage(supabase, userId, "capacity_exceeded", "profile", userId)) {
+  if (
+    await hasUndismissedMessage(
+      supabase,
+      userId,
+      "capacity_exceeded",
+      "profile",
+      userId,
+    )
+  ) {
     return;
   }
   const percentOver = Math.round(((count - limit) / limit) * 100);
-  await emitLlamaMessage(userId, "capacity_exceeded", { percentOver }, { type: "profile", id: userId });
+  await emitLlamaMessage(
+    userId,
+    "capacity_exceeded",
+    { percentOver },
+    { type: "profile", id: userId },
+  );
+}
+
+type ActiveTripGoal = {
+  goalId: string;
+  tripId: string;
+  title: string;
+  targetAmountMinor: number | null;
+};
+
+/**
+ * Shared by all three trip evaluators below (P6.6) — same two-query,
+ * in-memory-join shape `evaluateGoalUndefined` already uses for
+ * goals-plus-a-related-table, rather than a PostgREST embedded-resource
+ * filter (not a pattern used elsewhere in this codebase — see
+ * CLAUDE.md). No `userId` parameter: the request-scoped `supabase`
+ * client is already authenticated as that user, so `goals_select`'s RLS
+ * scopes this correctly on its own, same as every other goal-level
+ * evaluator in this file.
+ */
+async function fetchActiveTripGoals(
+  supabase: SupabaseServerClient,
+): Promise<ActiveTripGoal[]> {
+  const goals = logged(
+    await supabase
+      .from("goals")
+      .select("id, title, target_amount_minor")
+      .eq("kind", "trip")
+      .eq("state", "active")
+      .is("deleted_at", null),
+    "fetchActiveTripGoals: goals",
+  );
+  if (!goals || goals.length === 0) return [];
+
+  const trips = logged(
+    await supabase
+      .from("trips")
+      .select("id, goal_id")
+      .in(
+        "goal_id",
+        goals.map((g) => g.id),
+      )
+      .is("deleted_at", null),
+    "fetchActiveTripGoals: trips",
+  );
+
+  const goalById = new Map(goals.map((g) => [g.id, g]));
+  const result: ActiveTripGoal[] = [];
+  for (const trip of trips ?? []) {
+    const goal = trip.goal_id ? goalById.get(trip.goal_id) : undefined;
+    if (!goal) continue;
+    result.push({
+      goalId: goal.id,
+      tripId: trip.id,
+      title: goal.title,
+      targetAmountMinor: goal.target_amount_minor,
+    });
+  }
+  return result;
+}
+
+const TRIP_BOOKED_STATES = new Set(["booked", "done"]);
+
+/**
+ * trip_booked (P6.6) — every stop *and* every leg on an active trip is
+ * `booking_state` 'booked' or 'done'. A trip with no stops and no legs
+ * yet is excluded on purpose: vacuously "everything is booked" (because
+ * there's nothing to book) isn't the same as actually locked in.
+ */
+async function evaluateTripBooked(
+  supabase: SupabaseServerClient,
+  userId: string,
+): Promise<void> {
+  const trips = await fetchActiveTripGoals(supabase);
+  if (trips.length === 0) return;
+  const tripIds = trips.map((t) => t.tripId);
+
+  const [stopsResult, legsResult] = await Promise.all([
+    supabase
+      .from("trip_stops")
+      .select("trip_id, booking_state")
+      .in("trip_id", tripIds)
+      .is("deleted_at", null),
+    supabase
+      .from("trip_legs")
+      .select("trip_id, booking_state")
+      .in("trip_id", tripIds)
+      .is("deleted_at", null),
+  ]);
+  const stops = logged(stopsResult, "evaluateTripBooked: stops");
+  const legs = logged(legsResult, "evaluateTripBooked: legs");
+
+  for (const trip of trips) {
+    const tripStops = (stops ?? []).filter((s) => s.trip_id === trip.tripId);
+    const tripLegs = (legs ?? []).filter((l) => l.trip_id === trip.tripId);
+    if (tripStops.length === 0 && tripLegs.length === 0) continue;
+
+    const allBooked =
+      tripStops.every((s) => TRIP_BOOKED_STATES.has(s.booking_state)) &&
+      tripLegs.every((l) => TRIP_BOOKED_STATES.has(l.booking_state));
+    if (!allBooked) continue;
+
+    if (
+      await hasUndismissedMessage(
+        supabase,
+        userId,
+        "trip_booked",
+        "goal",
+        trip.goalId,
+      )
+    ) {
+      continue;
+    }
+    await emitLlamaMessage(
+      userId,
+      "trip_booked",
+      { tripTitle: trip.title },
+      { type: "goal", id: trip.goalId },
+    );
+  }
+}
+
+/**
+ * trip_over_budget (P6.6) — `v_trip_estimates.total_estimate_minor`
+ * (every stop and leg, converted to the goal's own currency — see
+ * that view's own doc) past the trip goal's `target_amount_minor`. The
+ * stops/legs-aware sibling of `budget_exceeded`, which only ever reads
+ * `v_goal_funding`'s ledger-derived spend.
+ */
+async function evaluateTripOverBudget(
+  supabase: SupabaseServerClient,
+  userId: string,
+): Promise<void> {
+  const trips = (await fetchActiveTripGoals(supabase)).filter(
+    (t) => t.targetAmountMinor != null,
+  );
+  if (trips.length === 0) return;
+
+  const estimates = logged(
+    await supabase
+      .from("v_trip_estimates")
+      .select("trip_id, total_estimate_minor, currency")
+      .in(
+        "trip_id",
+        trips.map((t) => t.tripId),
+      ),
+    "evaluateTripOverBudget: estimates",
+  );
+  const estimateByTrip = new Map(
+    (estimates ?? [])
+      .filter((e) => e.trip_id != null)
+      .map((e) => [e.trip_id as string, e]),
+  );
+
+  for (const trip of trips) {
+    const estimate = estimateByTrip.get(trip.tripId);
+    if (
+      !estimate ||
+      estimate.total_estimate_minor == null ||
+      !estimate.currency
+    ) {
+      continue;
+    }
+    if (estimate.total_estimate_minor <= trip.targetAmountMinor!) continue;
+
+    if (
+      await hasUndismissedMessage(
+        supabase,
+        userId,
+        "trip_over_budget",
+        "goal",
+        trip.goalId,
+      )
+    ) {
+      continue;
+    }
+    await emitLlamaMessage(
+      userId,
+      "trip_over_budget",
+      {
+        tripTitle: trip.title,
+        overMinor: estimate.total_estimate_minor - trip.targetAmountMinor!,
+        currency: estimate.currency,
+      },
+      { type: "goal", id: trip.goalId },
+    );
+  }
+}
+
+const STOP_UNBOOKED_WINDOW_DAYS = 30;
+
+/** stop_unbooked_soon (P6.6 brief, verbatim) — a stop within 30 days still at `booking_state: 'idea'`. */
+async function evaluateStopUnbookedSoon(
+  supabase: SupabaseServerClient,
+  userId: string,
+  today: string,
+): Promise<void> {
+  const trips = await fetchActiveTripGoals(supabase);
+  if (trips.length === 0) return;
+  const titleByTripId = new Map(trips.map((t) => [t.tripId, t.title]));
+
+  const stops = logged(
+    await supabase
+      .from("trip_stops")
+      .select("id, trip_id, name, computed_arrival")
+      .in(
+        "trip_id",
+        trips.map((t) => t.tripId),
+      )
+      .eq("booking_state", "idea")
+      .is("deleted_at", null)
+      .not("computed_arrival", "is", null),
+    "evaluateStopUnbookedSoon: stops",
+  );
+
+  for (const stop of stops ?? []) {
+    if (!stop.computed_arrival || !stop.trip_id) continue;
+    const tripTitle = titleByTripId.get(stop.trip_id);
+    if (!tripTitle) continue;
+
+    const daysUntil = toGoalOffset(stop.computed_arrival, today);
+    if (daysUntil < 0 || daysUntil > STOP_UNBOOKED_WINDOW_DAYS) continue;
+
+    if (
+      await hasUndismissedMessage(
+        supabase,
+        userId,
+        "stop_unbooked_soon",
+        "trip_stop",
+        stop.id,
+      )
+    ) {
+      continue;
+    }
+    await emitLlamaMessage(
+      userId,
+      "stop_unbooked_soon",
+      { stopName: stop.name, tripTitle, daysUntil },
+      { type: "trip_stop", id: stop.id },
+    );
+  }
 }
 
 /**
@@ -359,24 +812,32 @@ async function evaluateCapacityExceeded(
  * advisory feature, not a correctness-critical one, so the small race
  * window that leaves is an acceptable trade for not needing a lock.
  *
- * goal_completed isn't evaluated here even though P4.6's own trigger
- * table lists it: it's already emitted inline, exactly once, at the
- * moment transitionGoalState actually completes a goal
- * (goals/actions.ts) — that's strictly more precise than detecting it
- * by polling, and reimplementing it here would risk a second message
- * for the same completion. Speaker/priority still come from the
- * registry either way (emitLlamaMessage always looks them up) — this
- * is only about *where* the trigger condition gets checked.
+ * goal_completed/trip_completed aren't evaluated here even though
+ * P4.6's own trigger table lists goal_completed: both are already
+ * emitted inline, exactly once, at the moment transitionGoalState
+ * actually completes a goal (goals/actions.ts, branching on `kind`
+ * between the two) — that's strictly more precise than detecting it by
+ * polling, and reimplementing it here would risk a second message for
+ * the same completion. first_goal/first_trip/first_budget_set (P6.6)
+ * are the same story — each condition is a fresh count of exactly 1,
+ * which only ever happens the instant that row is inserted, so they're
+ * emitted inline from their own creation actions (goals/actions.ts,
+ * trips/actions.ts) rather than polled. Speaker/priority still come
+ * from the registry either way (emitLlamaMessage always looks them up)
+ * — this is only about *where* the trigger condition gets checked.
  */
 export async function evaluateLlamaTriggers(
   supabase: SupabaseServerClient,
   userId: string,
 ): Promise<void> {
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("llama_evaluated_at, timezone")
-    .eq("id", userId)
-    .maybeSingle();
+  const profile = logged(
+    await supabase
+      .from("profiles")
+      .select("llama_evaluated_at, timezone")
+      .eq("id", userId)
+      .maybeSingle(),
+    "evaluateLlamaTriggers: profile",
+  );
   if (!profile) return;
 
   const lastEvaluated = profile.llama_evaluated_at
@@ -386,10 +847,16 @@ export async function evaluateLlamaTriggers(
     return;
   }
 
-  await supabase
+  const { error: claimError } = await supabase
     .from("profiles")
     .update({ llama_evaluated_at: new Date().toISOString() })
     .eq("id", userId);
+  if (claimError) {
+    console.error(
+      "evaluateLlamaTriggers: claiming llama_evaluated_at failed",
+      claimError,
+    );
+  }
 
   const today = todayInZone(profile.timezone, new Date());
 
@@ -398,8 +865,12 @@ export async function evaluateLlamaTriggers(
     evaluateGoalUndefined(supabase, userId),
     evaluateTaskOverdue(supabase, userId, today),
     evaluateBudgetExceeded(supabase, userId),
+    evaluateGoalProjectedLate(supabase, userId),
     evaluateCheckinDue(supabase, userId, today),
     evaluateCheckinStreak(supabase, userId),
     evaluateCapacityExceeded(supabase, userId),
+    evaluateTripBooked(supabase, userId),
+    evaluateTripOverBudget(supabase, userId),
+    evaluateStopUnbookedSoon(supabase, userId, today),
   ]);
 }

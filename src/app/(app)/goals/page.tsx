@@ -53,6 +53,14 @@ export default async function GoalsPage({
       : stateParam && GOAL_STATES.includes(stateParam as GoalState)
         ? (stateParam as GoalState)
         : "active";
+  // P5.5: "active" is the *default* view (no param at all), not a filter
+  // someone deliberately chose — a brand-new account with zero goals
+  // ever would otherwise be told to "adjust their filter" over a filter
+  // they never touched. Checked against the raw params, not the
+  // resolved `stateFilter`/lifeAreaParam values, for exactly that reason.
+  const hasActiveFilters =
+    (stateParam != null && stateParam !== "active") ||
+    (lifeAreaParam != null && lifeAreaParam !== "all");
 
   const supabase = await createClient();
   const { data: auth } = await supabase.auth.getClaims();
@@ -270,16 +278,32 @@ export default async function GoalsPage({
       <GoalsFilters lifeAreas={lifeAreas} />
 
       {groups.length === 0 && sharedGoals.length === 0 ? (
-        <LlamaEmptyState
-          speaker="fluffy"
-          title="No goals here yet"
-          body="Nothing to show for this filter — plant your first goal and watch it grow."
-          action={
-            <Button asChild>
-              <Link href="/goals/new">New goal</Link>
-            </Button>
-          }
-        />
+        hasActiveFilters ? (
+          <LlamaEmptyState
+            speaker="fluffy"
+            title="Nothing matches these filters"
+            body="Your goals are out there — try widening the state filter, or a different life area."
+            action={
+              // A plain Link, not a client-side "clear filters" handler
+              // (this is a server component) — /goals with no query
+              // params is exactly the default, filter-free view.
+              <Button asChild variant="outline">
+                <Link href="/goals">Clear filters</Link>
+              </Button>
+            }
+          />
+        ) : (
+          <LlamaEmptyState
+            speaker="fluffy"
+            title="No goals here yet"
+            body="Plant your first goal and watch it grow."
+            action={
+              <Button asChild>
+                <Link href="/goals/new">New goal</Link>
+              </Button>
+            }
+          />
+        )
       ) : useUrgencySort ? (
         <ul className="border-subtle bg-surface flex flex-col gap-1 rounded-xl border p-2">
           {urgencyOrdered.map(({ goal, ownerName }) => (

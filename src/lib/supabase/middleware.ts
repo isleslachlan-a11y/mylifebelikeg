@@ -68,11 +68,26 @@ export async function updateSession(request: NextRequest) {
   // except /onboarding itself — new sign-ups have an auth.users row but no
   // profiles row yet, and almost everything (RLS, foreign keys) runs
   // through profiles.
-  const { data: profile } = await supabase
+  const { data: profile, error: profileError } = await supabase
     .from("profiles")
     .select("id")
     .eq("id", userId)
     .maybeSingle();
+  // maybeSingle() only sets error for a genuine query failure — a real
+  // "no profile row yet" is data: null, error: null, so this can't be
+  // mistaken for that case. A transient failure here used to look
+  // identical to "new user," bouncing an already-onboarded person into
+  // /onboarding on literally every request until it cleared (P5.5's
+  // Supabase-call audit — this file runs on every request, so it's the
+  // highest-blast-radius instance of the bug). Middleware can't render
+  // an error boundary, so it fails open instead: let the request
+  // through as if the profile exists, and let the destination page's
+  // own layout.tsx (which now throws on the same kind of error) surface
+  // it honestly if the failure persists.
+  if (profileError) {
+    console.error("proxy: profile lookup failed", profileError);
+    return response;
+  }
   const hasProfile = profile !== null;
 
   if (AUTH_ROUTES.includes(pathname)) {

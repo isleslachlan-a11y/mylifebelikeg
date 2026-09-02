@@ -22,7 +22,7 @@ section into three honest categories rather than two:
   exact synthetic fixtures at the brief's own numbers. Critical-path timings
   were run against a temporary goal owned by the real account, timed with
   Postgres's own `clock_timestamp()`, then fully deleted afterward (`DELETE
-  ... CASCADE`, verified empty).
+... CASCADE`, verified empty).
 - **Measured, but not at the specified scale, and flagged as such**: the
   `v_timeline_items` window query. `EXPLAIN ANALYZE` against the live project
   gives a real execution time and confirms the query plan actually uses
@@ -44,13 +44,13 @@ their module docs.
 
 ## Test conditions
 
-| | |
-|---|---|
-| Dataset | ≥200 timeline items, ≥6 lanes, 3-year span |
-| Desktop | Chrome, 1280×800, 6× CPU throttle |
-| Mobile | Real device, not emulator. Note model. |
-| Network | Fast 3G throttle for query timings |
-| Build | Production (`next build && next start`), never dev |
+|         |                                                    |
+| ------- | -------------------------------------------------- |
+| Dataset | ≥200 timeline items, ≥6 lanes, 3-year span         |
+| Desktop | Chrome, 1280×800, 6× CPU throttle                  |
+| Mobile  | Real device, not emulator. Note model.             |
+| Network | Fast 3G throttle for query timings                 |
+| Build   | Production (`next build && next start`), never dev |
 
 Dev-mode numbers are meaningless here — React's development build does extra
 work on every render, and the difference is large enough to hide a real problem
@@ -67,13 +67,13 @@ table rather than presented as if it met them.
 
 ### Timeline render
 
-| Metric | Target | Ceiling | Measured |
-|---|---|---|---|
-| First paint, month zoom, 200 items | < 400 ms | 800 ms | — not measured (no browser) |
-| Zoom change, re-render | < 150 ms | 300 ms | — not measured (no browser) |
-| Grouping mode switch | < 200 ms | 400 ms | — not measured (no browser) |
-| Scroll frame rate, month zoom, mobile | 60 fps | 45 fps sustained | — not measured (no device) |
-| Lane expand/collapse | < 100 ms | 200 ms | — not measured (no browser) |
+| Metric                                | Target   | Ceiling          | Measured                    |
+| ------------------------------------- | -------- | ---------------- | --------------------------- |
+| First paint, month zoom, 200 items    | < 400 ms | 800 ms           | — not measured (no browser) |
+| Zoom change, re-render                | < 150 ms | 300 ms           | — not measured (no browser) |
+| Grouping mode switch                  | < 200 ms | 400 ms           | — not measured (no browser) |
+| Scroll frame rate, month zoom, mobile | 60 fps   | 45 fps sustained | — not measured (no device)  |
+| Lane expand/collapse                  | < 100 ms | 200 ms           | — not measured (no browser) |
 
 Rationale: 150 ms is roughly the threshold at which an interaction stops feeling
 instant. Frame rate matters more than any single render time — a dropped frame
@@ -86,11 +86,11 @@ Chrome session (throttled 6×), and — for the frame-rate row — a real phone.
 
 ### Stacking (`assignSubRows`)
 
-| Metric | Target | Ceiling | Measured |
-|---|---|---|---|
-| 50 items, one lane | < 5 ms | 15 ms | **0.057 ms**, depth 50 (Node, this pass) |
-| 200 items across 6 lanes | < 20 ms | 50 ms | **0.794 ms**, 240 items/6 lanes, depth 51 total (Node, P3.8) |
-| Called per zoom change | 1× per lane | — | Confirmed by construction (P3.8's memoisation fix, keyed on `scale.pxPerDay`) |
+| Metric                   | Target      | Ceiling | Measured                                                                      |
+| ------------------------ | ----------- | ------- | ----------------------------------------------------------------------------- |
+| 50 items, one lane       | < 5 ms      | 15 ms   | **0.057 ms**, depth 50 (Node, this pass)                                      |
+| 200 items across 6 lanes | < 20 ms     | 50 ms   | **0.794 ms**, 240 items/6 lanes, depth 51 total (Node, P3.8)                  |
+| Called per zoom change   | 1× per lane | —       | Confirmed by construction (P3.8's memoisation fix, keyed on `scale.pxPerDay`) |
 
 This runs on every zoom change per lane. Memoise on `(items, zoom, laneKey)`.
 If it exceeds the ceiling, the deterministic sort is the likely cause —
@@ -110,12 +110,12 @@ comparison.
 
 ### Data layer
 
-| Metric | Target | Ceiling | Measured |
-|---|---|---|---|
-| `v_timeline_items` window query | < 100 ms | 250 ms | **0.152 ms execution** (see caveat below — wrong scale) |
-| Queries fired scrolling one year | ≤ 4 | 8 | ≤ 1, by-hand trace (P3.8, unchanged code) |
-| Cache hit rate, scroll-back | > 90% | — | — not measured (needs a real scroll gesture) |
-| Debounce delay | 150 ms | — | **150 ms** — `DEFAULT_DEBOUNCE_MS` in `use-timeline-items.ts`, read directly from source |
+| Metric                           | Target   | Ceiling | Measured                                                                                 |
+| -------------------------------- | -------- | ------- | ---------------------------------------------------------------------------------------- |
+| `v_timeline_items` window query  | < 100 ms | 250 ms  | **0.152 ms execution** (see caveat below — wrong scale)                                  |
+| Queries fired scrolling one year | ≤ 4      | 8       | ≤ 1, by-hand trace (P3.8, unchanged code)                                                |
+| Cache hit rate, scroll-back      | > 90%    | —       | — not measured (needs a real scroll gesture)                                             |
+| Debounce delay                   | 150 ms   | —       | **150 ms** — `DEFAULT_DEBOUNCE_MS` in `use-timeline-items.ts`, read directly from source |
 
 Query count is the one to watch. A debounce that isn't working shows up as
 dozens of queries rather than as a slow query.
@@ -144,10 +144,10 @@ logic independent of data volume, and the second is a source-level constant.
 
 ### Scroll container
 
-| Metric | Target | Ceiling | Measured |
-|---|---|---|---|
+| Metric                     | Target      | Ceiling   | Measured                                                             |
+| -------------------------- | ----------- | --------- | -------------------------------------------------------------------- |
 | Container width, week zoom | < 20,000 px | 50,000 px | **= rangePx** (tested 800/1000/2400px), verified structurally (P3.8) |
-| Container width, day zoom | < 5,000 px | 15,000 px | **= rangePx**, same as above — independent of zoom (P3.8) |
+| Container width, day zoom  | < 5,000 px  | 15,000 px | **= rangePx**, same as above — independent of zoom (P3.8)            |
 
 The P0.8 spike measured ~65,700 px at week zoom for a three-year span. The
 P3.0 zoom-dependent domain caps should have retired this. **Verify rather than
@@ -161,11 +161,11 @@ only week. See `PERF-NOTES.md` #1 for the full derivation.
 
 ### Critical path (Phase 5)
 
-| Metric | Target | Ceiling | Measured |
-|---|---|---|---|
-| `recompute_goal_schedule`, 50 tasks, 30 edges | < 50 ms | 150 ms | **~14.2 ms avg** (5 runs, 13.6–15.4 ms) |
-| Cascade on goal start date change | < 200 ms | 500 ms | **35.5 ms** cold, **0.2–0.6 ms** warm-cache (see note) |
-| Critical path overlay render | < 50 ms | 100 ms | — not applicable yet: no overlay component exists |
+| Metric                                        | Target   | Ceiling | Measured                                                                  |
+| --------------------------------------------- | -------- | ------- | ------------------------------------------------------------------------- |
+| `recompute_goal_schedule`, 50 tasks, 30 edges | < 50 ms  | 150 ms  | **~14.2 ms avg** (5 runs, 13.6–15.4 ms)                                   |
+| Cascade on goal start date change             | < 200 ms | 500 ms  | **35.5 ms** cold, **0.2–0.6 ms** warm-cache (see note)                    |
+| Critical path overlay render                  | < 50 ms  | 100 ms  | **0.209 ms** — routing/filtering only, same 50/30 bucket (see note below) |
 
 The scheduler runs in Postgres on every dependency and duration change. It
 iterates to a fixed point, so cost scales with graph depth rather than task
@@ -197,13 +197,20 @@ user's first edit in a session is the 35.5 ms case, not the 0.2 ms one — that'
 the number to compare against the 200 ms target, and it clears it by a wide
 margin regardless.
 
-**The overlay row is genuinely inapplicable, not just unmeasured.** No
-component in this codebase currently reads `is_critical`/`total_float_days`/
-`v_critical_path` for rendering — `goal-timeline.tsx`'s `taskFill` is still
-P1.11's four-way completed/overdue/in-progress/not-started classification,
-with no critical-path styling layered on top. That's a future package's job;
-this row stays blank until it exists, rather than being marked "fast" for a
-thing that was never rendered.
+**The overlay row is now partially measured, and the rest is still honestly
+open.** P5.1 wired `is_critical` (0022's migration) and `task_dependencies`
+into the cross-goal timeline: a critical task gets an outline treatment, and
+`CriticalPathArrows` (in both `horizontal-timeline.tsx` and
+`vertical-timeline.tsx`) draws right-angle routes between critical tasks via
+`critical-path.ts`'s `selectCriticalPathEdges` + `routeOrthogonal`. What's
+measured above is exactly that pure routing/filtering cost, at the same
+50-task/30-edge bucket the scheduler rows use (`perf.test.ts`, "critical path
+overlay routing") — **not** the actual SVG paint, which still needs a real
+browser and isn't measurable from here, same caveat as the timeline-render
+section above. The number is small enough (0.209 ms, comfortably under even
+the stacking budget's per-frame ceiling) that routing itself is very unlikely
+to be the bottleneck if this row's target is ever missed in a browser — paint
+cost, not JS cost, would be the thing to profile first.
 
 ---
 
@@ -227,7 +234,7 @@ Append each measurement run: date, commit, device, what changed. A single
 snapshot tells you whether you're fast today; a series tells you what made you
 slow.
 
-| Date | Commit | Device | Change | Notes |
-|---|---|---|---|---|
-| 2026-08-25 | `21d9adb` (P3.8) | Node (no browser/device this pass) | P3.0–P3.7 timeline work | Scroll container size and stacking cost measured for real; frame rate and query count traced/reasoned, not measured. Found and fixed a real (if small) `assignSubRows` memoisation bug. See `PERF-NOTES.md`. |
+| Date       | Commit                  | Device                                                  | Change                         | Notes                                                                                                                                                                                                                                                         |
+| ---------- | ----------------------- | ------------------------------------------------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-08-25 | `21d9adb` (P3.8)        | Node (no browser/device this pass)                      | P3.0–P3.7 timeline work        | Scroll container size and stacking cost measured for real; frame rate and query count traced/reasoned, not measured. Found and fixed a real (if small) `assignSubRows` memoisation bug. See `PERF-NOTES.md`.                                                  |
 | 2026-08-28 | `6c76a21` (Phase 5 CPM) | Node + live DB (`supabase db query`), no browser/device | Critical-path scheduler (0021) | First budget pass to include this file. Measured the 50-item/1-lane stacking bucket and both critical-path scheduler rows for real; `v_timeline_items` measured but flagged as wrong-scale; timeline-render section and the overlay row remain entirely open. |

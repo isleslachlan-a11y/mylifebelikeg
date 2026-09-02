@@ -5,11 +5,12 @@ import { revalidatePath } from "next/cache";
 
 import { createClient } from "@/lib/supabase/server";
 import { humanizeDbError } from "@/lib/errors";
+import { grantAchievementManually } from "@/lib/achievements/evaluate";
+import type { NewlyUnlockedAchievement } from "@/lib/achievements/types";
 import { transitionGoalState } from "../../goals/actions";
 
 export type ActionResult<T = undefined> =
-  | { ok: true; data: T }
-  | { ok: false; error: string };
+  { ok: true; data: T } | { ok: false; error: string };
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
 
@@ -71,17 +72,61 @@ export async function acceptRaiseSuggestion(
  * duplicating the lifecycle-transition logic; if that fails, the limit
  * is left untouched rather than lowering it out from under a goal that
  * didn't actually move.
+ *
+ * P7.2: this is also the one call site for `honest_reckoning` — the
+ * achievement whose `trigger_type` is `capacity_honesty` (the brief's
+ * own phrase for it), but whose `code` — the value `app.grant_achievement`
+ * actually takes — is `honest_reckoning`; confirmed against the live
+ * `achievements` table directly rather than assumed, after a first pass
+ * that passed `'capacity_honesty'` straight through silently granted
+ * nothing, ever (unknown code, `grant_achievement` just returns `false`,
+ * indistinguishable from "already held" without checking). "Granted
+ * manually, not computed... the one achievement for an act of judgement
+ * rather than an accumulation" (brief, verbatim). It's granted here
+ * rather than left to `app.evaluate_achievements` because "accepted a
+ * lower suggestion while goals were struggling" isn't something a
+ * counting rule over `goals`/`ledger_entries`/`check_ins` could ever
+ * detect — this action *is* the judgement, the moment it happens.
+ * `grantAchievementManually` is idempotent (`app.grant_achievement`'s
+ * own `on conflict do nothing`), so accepting a second "lower"
+ * suggestion later is ordinary, expected use and correctly celebrates
+ * nothing the second time.
  */
 export async function lowerLimitByMovingGoal(
   goalId: string,
   targetState: "someday" | "archived",
   currentLimit: number,
-): Promise<ActionResult> {
+): Promise<ActionResult<{ unlockedAchievements: NewlyUnlockedAchievement[] }>> {
   const moveResult = await transitionGoalState(goalId, targetState);
   if (!moveResult.ok) {
     return moveResult;
   }
-  return updateActiveGoalLimit(Math.max(1, currentLimit - 1));
+
+  const limitResult = await updateActiveGoalLimit(
+    Math.max(1, currentLimit - 1),
+  );
+  if (!limitResult.ok) {
+    return limitResult;
+  }
+
+  const supabase = await createClient();
+  const userId = await getUserId(supabase);
+
+  let unlockedAchievements: NewlyUnlockedAchievement[] = [];
+  try {
+    const granted = await grantAchievementManually(
+      supabase,
+      userId,
+      "honest_reckoning",
+    );
+    if (granted) {
+      unlockedAchievements = [granted];
+    }
+  } catch (grantError) {
+    console.error("honest_reckoning grant failed", grantError);
+  }
+
+  return { ok: true, data: { unlockedAchievements } };
 }
 
 /**

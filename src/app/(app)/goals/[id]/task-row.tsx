@@ -5,6 +5,7 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { GripVertical } from "lucide-react";
 
+import { Avatar } from "@/components/avatar";
 import {
   Select,
   SelectContent,
@@ -18,7 +19,7 @@ import {
   isRelativeTimePrimary,
 } from "@/lib/dates";
 import { cn } from "@/lib/utils";
-import type { Database } from "@/types/database";
+import type { Database, Json } from "@/types/database";
 import type { GoalScheduleData } from "./dependency-actions";
 import { TaskEditPanel } from "./task-edit-panel";
 
@@ -42,18 +43,12 @@ const STATUS_LABELS: Record<TaskStatus, string> = {
   cancelled: "Cancelled",
 };
 
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  const first = parts[0]?.[0] ?? "?";
-  const last = parts.length > 1 ? (parts[parts.length - 1]?.[0] ?? "") : "";
-  return (first + last).toUpperCase();
-}
-
 export function TaskRow({
   task,
   today,
   canEdit,
   ownerName,
+  ownerAvatar,
   goalId,
   goalStartDate,
   goalCurrency,
@@ -72,6 +67,7 @@ export function TaskRow({
   today: string;
   canEdit: boolean;
   ownerName: string;
+  ownerAvatar: Json;
   goalId: string;
   goalStartDate: string | null;
   goalCurrency: string;
@@ -164,12 +160,8 @@ export function TaskRow({
           </span>
         </button>
 
-        <span
-          className="font-display text-deep bg-primary-soft flex size-6 shrink-0 items-center justify-center rounded-full text-[0.65rem]"
-          title={ownerName}
-          aria-hidden
-        >
-          {initials(ownerName)}
+        <span title={ownerName} className="shrink-0">
+          <Avatar avatar={ownerAvatar} size={24} className="rounded-full" />
         </span>
 
         <span className="text-muted-foreground hidden shrink-0 text-xs whitespace-nowrap sm:inline">

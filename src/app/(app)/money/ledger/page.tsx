@@ -36,11 +36,19 @@ export default async function LedgerPage({
   }
   const userId = auth.claims.sub;
 
-  const { data: profile } = await supabase
+  const { data: profile, error: profileError } = await supabase
     .from("profiles")
     .select("base_currency, timezone")
     .eq("id", userId)
     .single();
+  // Same class of bug P5.5's audit already fixed on AppLayout's own
+  // profile fetch: a real failure here used to silently fall back to
+  // "AUD"/UTC and mislabel real money on this page instead of
+  // surfacing. This route is reached post-onboarding, so any error at
+  // all here is unexpected — thrown, not swallowed.
+  if (profileError) {
+    throw new Error(profileError.message);
+  }
   const baseCurrency = profile?.base_currency ?? "AUD";
   const today = todayInZone(profile?.timezone ?? "UTC", new Date());
 
@@ -87,6 +95,14 @@ export default async function LedgerPage({
   const goalTitleById = new Map(goalOptions.map((g) => [g.id, g.title]));
   const potOptions = pots ?? [];
   const potNameById = new Map(potOptions.map((p) => [p.id, p.name]));
+
+  // P5.5: distinguishes "nothing here yet" from "nothing matches these
+  // filters" — LedgerList used to say the latter unconditionally, which
+  // misdirects a brand-new account with zero entries toward adjusting
+  // filters that were never touched.
+  const hasActiveFilters = Boolean(
+    goalParam || potParam || typeParam || fromParam || toParam,
+  );
 
   let query = supabase
     .from("ledger_entries")
@@ -173,6 +189,7 @@ export default async function LedgerPage({
         pots={potOptions}
         defaultCurrency={baseCurrency}
         today={today}
+        hasActiveFilters={hasActiveFilters}
       />
     </div>
   );

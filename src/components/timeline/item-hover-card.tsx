@@ -4,6 +4,7 @@ import { isGracePeriod, type GoalRag } from "@/lib/rag";
 import { formatScheduleVariance } from "@/lib/schedule-variance";
 import {
   classifyItemStatus,
+  isBeyondFinancialHorizon,
   type ItemVisualStatus,
 } from "@/lib/timeline/item-status";
 import type { DisplayTimelineItem } from "./timeline-item-adapter";
@@ -40,6 +41,14 @@ export type ItemHoverCardProps = {
    * before P4.2.
    */
   rag?: GoalRag;
+  /**
+   * Bare "YYYY-MM-DD" from `app.financial_horizon()`, same value
+   * `TimelineView` already threads to the overlay line — passed through
+   * here too so a trip-stop card can "say so plainly" (P6.5 brief) when
+   * that stop sits beyond it, not just show it as a dashed outline on
+   * the bar itself.
+   */
+  financialHorizon?: string | null;
 };
 
 /**
@@ -56,6 +65,12 @@ export type ItemHoverCardProps = {
  * generic completed/overdue/in-progress/not-started classification —
  * this is the one place besides the goal bands themselves where that
  * classification gets replaced for goals specifically.
+ *
+ * P6.5: a trip-stop item beyond the financial horizon gets an extra row
+ * stating that plainly in words ("Beyond your financial horizon — not
+ * affordable yet") — the bar's own dashed outline is the "visibly
+ * aspirational" half of the brief's acceptance criterion, this is the
+ * "say so plainly" half.
  */
 export function ItemHoverCard({
   item,
@@ -63,6 +78,7 @@ export function ItemHoverCard({
   ownerName,
   scheduleVariancePp,
   rag,
+  financialHorizon,
 }: ItemHoverCardProps) {
   const status = classifyItemStatus(item, today);
   const isPoint = item.starts_on === item.ends_on;
@@ -111,6 +127,16 @@ export function ItemHoverCard({
             </dd>
           </div>
         )}
+        {item.item_type === "trip_stop" &&
+          isBeyondFinancialHorizon(
+            item.starts_on,
+            financialHorizon ?? null,
+          ) && (
+            <div className="flex justify-between gap-3">
+              <dt className="text-muted-foreground">Affordability</dt>
+              <dd className="text-rag-amber">Beyond your financial horizon</dd>
+            </div>
+          )}
       </dl>
     </div>
   );

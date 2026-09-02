@@ -40,3 +40,22 @@ export function classifyItemStatus(
   const hasStarted = toGoalOffset(item.starts_on, today) <= 0;
   return hasStarted ? "in_progress" : "not_started";
 }
+
+/**
+ * P6.5: "a trip whose stops sit beyond [the financial horizon] is one
+ * you can't yet afford. Say so plainly when that's true" (brief,
+ * verbatim). Compares a stop's own `starts_on` (arrival) against
+ * `app.financial_horizon()`'s cutoff date — bare "YYYY-MM-DD" strings,
+ * so a plain lexicographic comparison is a correct chronological one
+ * (same convention `lanes.ts` already leans on). `null` means "no
+ * horizon computed for this user" (`v_financial_horizon` returns no row
+ * when there's nothing to project — see `timeline-view.tsx`'s own doc
+ * comment on `financialHorizon`), which is never "beyond" anything.
+ */
+export function isBeyondFinancialHorizon(
+  startsOn: string,
+  horizonDate: string | null,
+): boolean {
+  if (!horizonDate) return false;
+  return startsOn > horizonDate;
+}

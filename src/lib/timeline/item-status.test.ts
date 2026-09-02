@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { classifyItemStatus } from "./item-status";
+import { classifyItemStatus, isBeyondFinancialHorizon } from "./item-status";
 
 const TODAY = "2026-06-15";
 
@@ -105,5 +105,20 @@ describe("classifyItemStatus", () => {
         TODAY,
       ),
     ).toBe("not_started");
+  });
+});
+
+describe("isBeyondFinancialHorizon", () => {
+  it("is true when a stop's arrival is after the horizon date", () => {
+    expect(isBeyondFinancialHorizon("2027-06-01", "2027-01-01")).toBe(true);
+  });
+
+  it("is false when arrival is on or before the horizon date", () => {
+    expect(isBeyondFinancialHorizon("2027-01-01", "2027-01-01")).toBe(false);
+    expect(isBeyondFinancialHorizon("2026-12-01", "2027-01-01")).toBe(false);
+  });
+
+  it("is false when there's no computed horizon", () => {
+    expect(isBeyondFinancialHorizon("2030-01-01", null)).toBe(false);
   });
 });

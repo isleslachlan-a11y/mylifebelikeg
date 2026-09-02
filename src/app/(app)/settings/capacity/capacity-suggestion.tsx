@@ -2,8 +2,10 @@
 
 import { useState, useTransition } from "react";
 
+import { AchievementCelebration } from "@/components/achievement-celebration";
 import { LlamaMessage } from "@/components/llama-message";
 import { Button } from "@/components/ui/button";
+import type { NewlyUnlockedAchievement } from "@/lib/achievements/types";
 import {
   Dialog,
   DialogContent,
@@ -43,6 +45,7 @@ export function CapacitySuggestion({
   const [isPending, startTransition] = useTransition();
   const [pickerOpen, setPickerOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [unlocked, setUnlocked] = useState<NewlyUnlockedAchievement[]>([]);
 
   function handleDismiss() {
     // Fire-and-forget: the card is already gone from this render either
@@ -75,11 +78,15 @@ export function CapacitySuggestion({
         return;
       }
       setPickerOpen(false);
+      if (result.data.unlockedAchievements.length > 0) {
+        setUnlocked(result.data.unlockedAchievements);
+      }
     });
   }
 
   return (
     <div className="flex flex-col gap-2">
+      <AchievementCelebration unlocked={unlocked} />
       <LlamaMessage
         speaker={direction === "raise" ? "fluffy" : "derek"}
         body={reason}
@@ -118,8 +125,8 @@ export function CapacitySuggestion({
             <DialogTitle>Move a goal to lower your limit</DialogTitle>
             <DialogDescription>
               Picking one moves it and drops your limit to{" "}
-              {Math.max(1, currentLimit - 1)} together — never leaving you
-              over the new limit.
+              {Math.max(1, currentLimit - 1)} together — never leaving you over
+              the new limit.
             </DialogDescription>
           </DialogHeader>
 

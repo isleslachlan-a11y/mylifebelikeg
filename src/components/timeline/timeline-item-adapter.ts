@@ -22,6 +22,35 @@ export type DisplayTimelineItem = LaneableItem & {
   sort_order: number;
   /** Needed by `classifyItemStatus` (P3.4) — same reasoning as `sort_order`. */
   is_complete: boolean;
+  /**
+   * P5.1: only ever `true` for a task on the critical path — `null` on
+   * every goal/milestone row (0022's migration; CPM only sets
+   * `is_critical` on `tasks`) coerces to `false` here rather than being
+   * treated as a missing/required field, since it's simply inapplicable
+   * to those item types, not malformed data.
+   */
+  is_critical: boolean;
+  /**
+   * P6.5: each item's *own* status — goal state / milestone open-or-
+   * completed / task status / trip stop booking state (0025's fixed
+   * `v_timeline_items.status`; `goal_status` is the separate, uniform
+   * column the *filter* uses — see `use-timeline-items.ts`). Only
+   * trip-stop rendering reads this today (`bookingStateFillClass`), but
+   * it's carried through for every item type rather than narrowed to
+   * trip_stop alone, since it's genuinely each row's own status now,
+   * not a trip-stop-specific concept.
+   */
+  status: string | null;
+  /**
+   * P6.5: "bars spanning arrival to departure, or points for zero-night
+   * stops" — `nights = 0` from the view, already computed the same way
+   * `duration_days = 0`/milestones-are-always-points are for the other
+   * branches. Only the trip-stop render branch actually checks this
+   * (tasks/goals keep their existing always-a-bar/never-a-point
+   * behaviour unchanged — not something P6.5 asked to touch); carried
+   * for every item type for the same reason `status` is.
+   */
+  is_point: boolean;
 };
 
 /**
@@ -43,7 +72,8 @@ export function toDisplayItem(row: TimelineItem): DisplayTimelineItem | null {
     row.is_complete == null ||
     (row.item_type !== "goal" &&
       row.item_type !== "milestone" &&
-      row.item_type !== "task")
+      row.item_type !== "task" &&
+      row.item_type !== "trip_stop")
   ) {
     return null;
   }
@@ -58,6 +88,9 @@ export function toDisplayItem(row: TimelineItem): DisplayTimelineItem | null {
     ends_on: row.ends_on,
     sort_order: row.sort_order,
     is_complete: row.is_complete,
+    is_critical: row.is_critical === true,
+    status: row.status,
+    is_point: row.is_point === true,
     title: row.title,
   };
 }

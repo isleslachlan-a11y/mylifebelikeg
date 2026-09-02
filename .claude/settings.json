@@ -6,7 +6,10 @@
       "Bash(npx eslint *)",
       "Bash(npm test*)",
       "Bash(npm run test*)",
-      "Bash(npx vitest run *)"
+      "Bash(npx vitest run *)",
+      "Bash(npm run build*)",
+      "Bash(npx next typegen*)",
+      "Bash(npx prettier --check *)"
     ]
   }
 }

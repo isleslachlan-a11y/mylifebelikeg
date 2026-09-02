@@ -65,7 +65,11 @@ export function LlamaMessage({
           setDismissed(true);
           onDismiss?.();
         }}
-        className="text-muted-foreground hover:bg-raised hover:text-foreground shrink-0 rounded-full p-1 transition-colors"
+        // P5.5's mobile pass: max-md:size-11 gives this a proper 44px
+        // tap target below the desktop breakpoint (measured 24x24
+        // before, from the plain p-1 padding alone) without growing it
+        // past that on desktop, where a mouse doesn't need the room.
+        className="text-muted-foreground hover:bg-raised hover:text-foreground flex shrink-0 items-center justify-center rounded-full p-1 transition-colors max-md:size-11"
       >
         <X className="size-4" aria-hidden />
       </button>

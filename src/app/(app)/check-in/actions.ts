@@ -6,12 +6,13 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { humanizeDbError } from "@/lib/errors";
 import { evaluateLlamaTriggers } from "@/lib/llamas/evaluate";
+import { evaluateAchievements } from "@/lib/achievements/evaluate";
+import type { NewlyUnlockedAchievement } from "@/lib/achievements/types";
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
 
 export type ActionResult<T = undefined> =
-  | { ok: true; data: T }
-  | { ok: false; error: string };
+  { ok: true; data: T } | { ok: false; error: string };
 
 // Every action below runs from an already-gated (app) route, so a missing
 // session here means it expired mid-use, not a first visit — same
@@ -143,7 +144,9 @@ export async function saveOverallNote(
  * skipping is allowed and unremarked (P4.1 brief), so a check-in with
  * zero ratings is a valid, if uneventful, submission.
  */
-export async function submitCheckIn(checkInId: string): Promise<ActionResult> {
+export async function submitCheckIn(
+  checkInId: string,
+): Promise<ActionResult<{ unlockedAchievements: NewlyUnlockedAchievement[] }>> {
   const supabase = await createClient();
   const userId = await getUserId(supabase);
 
@@ -170,6 +173,20 @@ export async function submitCheckIn(checkInId: string): Promise<ActionResult> {
     console.error("Llama evaluation failed after check-in submit", evalError);
   }
 
+  // P7.2: check-in submit is a discrete event, so this always runs —
+  // unlike evaluateLlamaTriggers just above, it's not subject to any
+  // debounce (steady_hand/long_haul are streak-based and can only ever
+  // actually change right after a submission like this one).
+  let unlockedAchievements: NewlyUnlockedAchievement[] = [];
+  try {
+    unlockedAchievements = await evaluateAchievements(supabase, userId);
+  } catch (evalError) {
+    console.error(
+      "Achievement evaluation failed after check-in submit",
+      evalError,
+    );
+  }
+
   revalidatePath("/check-in");
-  return { ok: true, data: undefined };
+  return { ok: true, data: { unlockedAchievements } };
 }

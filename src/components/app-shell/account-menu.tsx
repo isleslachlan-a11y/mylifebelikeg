@@ -18,7 +18,11 @@ export function AccountMenu({ displayName }: { displayName: string }) {
         <button
           type="button"
           aria-label="Account menu"
-          className="text-muted-foreground hover:bg-raised hover:text-foreground flex size-9 items-center justify-center rounded-full"
+          // P5.5's mobile pass: size-11 (44px), not size-9 — this
+          // component is mobile-only (MobileHeader), no desktop
+          // density trade-off to consider the way LlamaInbox's shared
+          // trigger has.
+          className="text-muted-foreground hover:bg-raised hover:text-foreground flex size-11 items-center justify-center rounded-full"
         >
           <CircleUser className="size-6" aria-hidden />
         </button>

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 
 import { LlamaEmptyState } from "@/components/llama-empty-state";
 import { Button } from "@/components/ui/button";
+import { useCriticalPathEdges } from "@/hooks/use-critical-path-edges";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import {
   useTimelineItems,
@@ -14,6 +15,7 @@ import {
   type TimelineItemType,
 } from "@/hooks/use-timeline-items";
 import type { GoalRag } from "@/lib/rag";
+import { shouldShowCriticalPathArrows } from "@/lib/timeline/critical-path";
 import { groupIntoLanes, type GroupingMode } from "@/lib/timeline/lanes";
 import { createScale, type ZoomLevel } from "@/lib/timeline/scale";
 import { createClient } from "@/lib/supabase/client";
@@ -34,7 +36,23 @@ const GROUPING_MODES: { value: GroupingMode; label: string }[] = [
   { value: "owner", label: "Owner" },
   { value: "goal", label: "Goal" },
 ];
-const ITEM_TYPES: TimelineItemType[] = ["goal", "milestone", "task"];
+const ITEM_TYPES: TimelineItemType[] = [
+  "goal",
+  "milestone",
+  "task",
+  "trip_stop",
+];
+// P6.5: "filter the timeline by item type so trips can be viewed alone"
+// (brief) — readable labels for the checkbox row below, replacing the
+// raw enum value ("trip_stop" read badly as a label on its own; the
+// others were fine as bare lowercase but get the same treatment now for
+// consistency).
+const ITEM_TYPE_LABEL: Record<TimelineItemType, string> = {
+  goal: "Goal",
+  milestone: "Milestone",
+  task: "Task",
+  trip_stop: "Trip stop",
+};
 const ZOOM_LEVELS: ZoomLevel[] = ["day", "week", "month", "quarter", "year"];
 const DESKTOP_DEFAULT_ZOOM: ZoomLevel = "month";
 const MOBILE_DEFAULT_ZOOM: ZoomLevel = "week";
@@ -130,6 +148,18 @@ export type TimelineViewProps = {
  * check, since the windowed/filtered fetch alone can't tell that case
  * apart from "filtered/windowed to nothing") vs. "filters exclude
  * everything" (data exists; nothing currently matches).
+ *
+ * P5.1 adds the "Show critical path" toggle (`showCriticalPath`, off by
+ * default) and, while it's on, fetches the dependency edges among
+ * currently-critical tasks (`useCriticalPathEdges`) for both layouts'
+ * arrow overlay. `showCriticalPathArrows` is computed here, not in
+ * either layout component, because it's the one decision in
+ * `timeline/`'s whole tree that's keyed off the `zoom` *label* rather
+ * than a rendered pixel value (`shouldShowCriticalPathArrows` —
+ * `critical-path.ts`'s module doc explains why) — `TimelineView` is
+ * where `zoom` already lives, so it's resolved into a plain boolean
+ * before either layout ever sees it, keeping both of them zoom-label-free
+ * the same way they already are everywhere else.
  */
 export function TimelineView({
   rangePx,
@@ -183,6 +213,11 @@ export function TimelineView({
   >(null);
   const [showEmptyLanes, setShowEmptyLanes] = useState(false);
   const [hoveredItemId, setHoveredItemId] = useState<string | null>(null);
+  // P5.1's toggle — off by default (brief, verbatim), so leaving it off
+  // costs nothing beyond the state itself: `showCriticalPathArrows` and
+  // `useCriticalPathEdges` below both key off this and skip their own
+  // work while it's false.
+  const [showCriticalPath, setShowCriticalPath] = useState(false);
 
   const [anchor, setAnchor] = useState(
     () => initialAnchor ?? new Date(`${today}T00:00:00.000Z`),
@@ -288,6 +323,31 @@ export function TimelineView({
     () => displayItems.find((item) => item.item_id === hoveredItemId) ?? null,
     [displayItems, hoveredItemId],
   );
+
+  // P5.1: every currently-loaded critical task's id, regardless of
+  // which lane it lands in or whether that lane happens to be
+  // collapsed/expanded right now — that finer filtering is each
+  // orientation component's own job (it's the one place that actually
+  // knows collapse state and, for the horizontal layout, cross-lane Y
+  // offsets). This is deliberately the coarser "what could possibly be
+  // drawn" set, matching `displayItems`' own windowed/filtered scope.
+  const criticalTaskIds = useMemo(
+    () =>
+      displayItems
+        .filter((item) => item.item_type === "task" && item.is_critical)
+        .map((item) => item.item_id),
+    [displayItems],
+  );
+  const { edges: dependencyEdges } = useCriticalPathEdges({
+    criticalTaskIds,
+    enabled: showCriticalPath,
+  });
+  // Arrows are suppressed at quarter/year zoom even while the toggle
+  // stays on (critical-path.ts's module doc explains why this is the
+  // one zoom-label-keyed decision in `timeline/`) — highlighting itself
+  // isn't gated by zoom, only arrows are, per the acceptance criterion.
+  const showCriticalPathArrows =
+    showCriticalPath && shouldShowCriticalPathArrows(zoom);
 
   // A one-time, unwindowed, unfiltered existence check — separate from
   // the windowed/filtered fetch above on purpose. "Filtered/windowed to
@@ -396,6 +456,12 @@ export function TimelineView({
             type="button"
             size="icon-sm"
             variant="outline"
+            // P5.5's mobile pass: max-md: 44px floor, same as every
+            // other icon-sm override this pass made — the +/− keyboard
+            // shortcuts (this component's own useEffect above) are a
+            // secondary path, not a reason to skip the tap target fix
+            // on the primary one.
+            className="max-md:size-11"
             aria-label="Zoom out"
             title="Zoom out (-)"
             disabled={zoom === "year"}
@@ -419,6 +485,7 @@ export function TimelineView({
             type="button"
             size="icon-sm"
             variant="outline"
+            className="max-md:size-11"
             aria-label="Zoom in"
             title="Zoom in (+)"
             disabled={zoom === "day"}
@@ -510,7 +577,7 @@ export function TimelineView({
               checked={itemTypes.includes(type)}
               onChange={() => toggleItemType(type)}
             />
-            {type}
+            {ITEM_TYPE_LABEL[type]}
           </label>
         ))}
 
@@ -521,6 +588,15 @@ export function TimelineView({
             onChange={(e) => setShowEmptyLanes(e.target.checked)}
           />
           Show empty lanes
+        </label>
+
+        <label className="flex items-center gap-1.5">
+          <input
+            type="checkbox"
+            checked={showCriticalPath}
+            onChange={(e) => setShowCriticalPath(e.target.checked)}
+          />
+          Show critical path
         </label>
 
         {!filtersAreDefault && (
@@ -577,6 +653,9 @@ export function TimelineView({
           onHoverItem={setHoveredItemId}
           onNavigate={navigateToGoal}
           goalRag={goalRag}
+          showCriticalPath={showCriticalPath}
+          showCriticalPathArrows={showCriticalPathArrows}
+          dependencyEdges={dependencyEdges}
         />
       ) : (
         <HorizontalTimeline
@@ -591,6 +670,9 @@ export function TimelineView({
           onHoverItem={setHoveredItemId}
           onNavigate={navigateToGoal}
           goalRag={goalRag}
+          showCriticalPath={showCriticalPath}
+          showCriticalPathArrows={showCriticalPathArrows}
+          dependencyEdges={dependencyEdges}
         />
       )}
 
@@ -602,6 +684,7 @@ export function TimelineView({
             ownerName={ownerNames?.get(hoveredItem.owner_id)}
             scheduleVariancePp={scheduleVariances?.get(hoveredItem.goal_id)}
             rag={goalRag?.get(hoveredItem.goal_id)}
+            financialHorizon={financialHorizon}
           />
         </div>
       )}

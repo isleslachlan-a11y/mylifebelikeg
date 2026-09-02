@@ -8,17 +8,29 @@ import type { Database } from "@/types/database";
 
 export type TimelineItem =
   Database["public"]["Views"]["v_timeline_items"]["Row"];
-export type TimelineItemType = "goal" | "milestone" | "task";
+export type TimelineItemType = "goal" | "milestone" | "task" | "trip_stop";
 export type GoalState = Database["public"]["Enums"]["goal_state"];
 
 export type TimelineItemFilters = {
   /**
-   * Goal state to include, applied to every item type via `status` (see
-   * the P3.1 migration's column decisions — `status` is the *parent
-   * goal's* state on every row, exactly so this filter works uniformly
-   * across goals/milestones/tasks). Defaults to `"active"`, matching the
-   * rest of the app's default goal view. Pass `null` to include every
-   * state.
+   * Goal state to include, applied via `goal_status` — the *parent
+   * goal's* state on every row, present specifically so this filter
+   * works uniformly across every item type. Defaults to `"active"`,
+   * matching the rest of the app's default goal view. Pass `null` to
+   * include every state.
+   *
+   * P6.5: this used to read `status` instead, on the P3.1-era assumption
+   * that column *was* the goal's state everywhere — true when 0011
+   * shipped it, but no longer true by the time trip stops were added to
+   * the view (that branch returns `trip_stops.booking_state`; milestone
+   * and task rows had already drifted to their own status/completion
+   * too). Confirmed live (a scratch `supabase db dump`, not assumed)
+   * that the old filter was silently returning zero milestones, tasks,
+   * or trip stops under the default "active" state — goal rows only.
+   * `goal_status` (0025) is the fix; `status` now stays each item's own
+   * status, which P6.5 actually needs for trip-stop colour ("booking
+   * state drives colour" — see horizontal-timeline.tsx/
+   * vertical-timeline.tsx's `bookingStateFillClass`).
    */
   goalState?: GoalState | null;
   lifeAreaId?: string;
@@ -161,7 +173,7 @@ export function useTimelineItems({
           .lte("starts_on", toDate);
 
         if (goalState !== null) {
-          query = query.eq("status", goalState);
+          query = query.eq("goal_status", goalState);
         }
         if (lifeAreaId) {
           query = query.eq("life_area_id", lifeAreaId);

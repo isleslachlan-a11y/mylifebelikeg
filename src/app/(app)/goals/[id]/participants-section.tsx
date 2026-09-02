@@ -1,8 +1,10 @@
 "use client";
 
 import { useState, useTransition, type FormEvent } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 
+import { Avatar } from "@/components/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,7 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { Database } from "@/types/database";
+import type { Database, Json } from "@/types/database";
 import {
   addParticipant,
   changeParticipantRole,
@@ -30,7 +32,7 @@ export type ParticipantRow = {
   // participants-actions.ts's AddableRole), but the column itself allows
   // the full enum, so the query result — and this type — has to too.
   role: ParticipantRole;
-  profile: { handle: string; display_name: string };
+  profile: { handle: string; display_name: string; avatar: Json };
 };
 
 export function ParticipantsSection({
@@ -43,7 +45,7 @@ export function ParticipantsSection({
   goalId: string;
   currentUserId: string;
   isOwner: boolean;
-  owner: { handle: string; display_name: string };
+  owner: { handle: string; display_name: string; avatar: Json };
   initialParticipants: ParticipantRow[];
 }) {
   const router = useRouter();
@@ -122,10 +124,16 @@ export function ParticipantsSection({
 
       <ul className="flex flex-col gap-2">
         <li className="flex items-center justify-between gap-2 text-sm">
-          <span>
-            {owner.display_name}{" "}
-            <span className="text-muted-foreground">@{owner.handle}</span>
-          </span>
+          <Link
+            href={`/profile/${owner.handle}`}
+            className="flex min-w-0 items-center gap-2 hover:underline"
+          >
+            <Avatar avatar={owner.avatar} size={24} className="rounded-full" />
+            <span className="truncate">
+              {owner.display_name}{" "}
+              <span className="text-muted-foreground">@{owner.handle}</span>
+            </span>
+          </Link>
           <Badge variant="secondary">Owner</Badge>
         </li>
 
@@ -134,10 +142,22 @@ export function ParticipantsSection({
             key={p.id}
             className="flex items-center justify-between gap-2 text-sm"
           >
-            <span>
-              {p.profile.display_name}{" "}
-              <span className="text-muted-foreground">@{p.profile.handle}</span>
-            </span>
+            <Link
+              href={`/profile/${p.profile.handle}`}
+              className="flex min-w-0 items-center gap-2 hover:underline"
+            >
+              <Avatar
+                avatar={p.profile.avatar}
+                size={24}
+                className="rounded-full"
+              />
+              <span className="truncate">
+                {p.profile.display_name}{" "}
+                <span className="text-muted-foreground">
+                  @{p.profile.handle}
+                </span>
+              </span>
+            </Link>
             <div className="flex items-center gap-2">
               {isOwner ? (
                 <Select

@@ -10,13 +10,16 @@ job, etc.), not preemptively.
 
 Set these in Vercel → Project → Settings → Environment Variables.
 
-| Variable                        | Value                               | Public or secret                                                                                                                         |
-| ------------------------------- | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `NEXT_PUBLIC_SUPABASE_URL`      | `https://<project-ref>.supabase.co` | Public                                                                                                                                   |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | anon/publishable key                | Public                                                                                                                                   |
-| `SUPABASE_SERVICE_ROLE_KEY`     | service role/secret key             | **Secret**                                                                                                                               |
-| `EXCHANGE_RATE_API_KEY`         | key from exchangerate-api.com       | **Secret**                                                                                                                               |
-| `FX_REFRESH_CRON_SECRET`        | any random string you generate      | **Secret** (optional — only needed if an external scheduler calls `/api/fx/refresh`; the in-app "Refresh rates" button works without it) |
+| Variable                        | Value                               | Public or secret                                                                                                                                     |
+| ------------------------------- | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_SUPABASE_URL`      | `https://<project-ref>.supabase.co` | Public                                                                                                                                               |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | anon/publishable key                | Public                                                                                                                                               |
+| `SUPABASE_SERVICE_ROLE_KEY`     | service role/secret key             | **Secret**                                                                                                                                           |
+| `EXCHANGE_RATE_API_KEY`         | key from exchangerate-api.com       | **Secret**                                                                                                                                           |
+| `FX_REFRESH_CRON_SECRET`        | any random string you generate      | **Secret** (optional — only needed if an external scheduler calls `/api/fx/refresh`; the in-app "Refresh rates" button works without it)             |
+| `UNSPLASH_ACCESS_KEY`           | Access Key from an Unsplash app     | **Secret** (P6.0 — `<PhotoPicker>`'s search/download proxy; Demo apps are capped at 50 requests/hour until Unsplash approves the app for production) |
+| `NEXT_PUBLIC_MAPBOX_TOKEN`      | Public token from Mapbox            | Public (P6.2 — `<PlaceMap>`'s map rendering; **restrict by URL** in the Mapbox dashboard, see below)                                                 |
+| `MAPBOX_SECRET_TOKEN`           | Secret-scoped token from Mapbox     | **Secret** (P6.2 — `/api/geocode`'s search proxy)                                                                                                    |
 
 Set these for the Production and Preview environments (Preview so PR
 deployments work end to end, not just production).
@@ -44,6 +47,27 @@ put the equivalent secret key under a `NEXT_PUBLIC_`-prefixed name by
 mistake. Caught locally before anything shipped, but it's exactly the
 failure mode this section exists to prevent happening in a place that
 actually ships to users.
+
+## Mapbox
+
+Two tokens, deliberately (P6.2), created at
+https://account.mapbox.com/access-tokens/:
+
+- `NEXT_PUBLIC_MAPBOX_TOKEN` — a **public** token. Restrict it by URL in the
+  dashboard (production domain, every Vercel preview pattern the way
+  DEPLOYMENT.md's Supabase redirect-URL section already does for auth
+  callbacks, and `http://localhost:3000`) — not because a public token is a
+  secret, but because an unrestricted one lets anyone who copies it out of
+  the page source spend usage against your account from their own site.
+- `MAPBOX_SECRET_TOKEN` — a **secret-scoped** token, read only by
+  `/api/geocode`. Left _without_ a URL restriction on purpose: server-side
+  requests carry no browser `Origin` header for Mapbox to match against one.
+
+**Mapbox has no hard spending cap** — the free tier (50,000 map loads,
+100,000 directions requests, 50,000 static images per month) is nowhere
+close to what two users will ever hit, but an abused or leaked token bills
+past it rather than getting throttled. Set a billing alert in the Mapbox
+dashboard (**Account → Billing**) now, not after it's needed.
 
 ## Supabase Auth redirect URLs
 

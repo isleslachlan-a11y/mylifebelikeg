@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 
+import { AchievementCelebration } from "@/components/achievement-celebration";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -13,6 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import type { NewlyUnlockedAchievement } from "@/lib/achievements/types";
 import { transitionGoalState } from "../actions";
 import {
   ALLOWED_GOAL_TRANSITIONS,
@@ -31,6 +33,7 @@ export function GoalStateActions({
   const [error, setError] = useState<string | null>(null);
   const [abandonOpen, setAbandonOpen] = useState(false);
   const [abandonReason, setAbandonReason] = useState("");
+  const [unlocked, setUnlocked] = useState<NewlyUnlockedAchievement[]>([]);
 
   const targets = ALLOWED_GOAL_TRANSITIONS[state];
   if (targets.length === 0) {
@@ -49,6 +52,13 @@ export function GoalStateActions({
         setAbandonOpen(false);
         setAbandonReason("");
       }
+      // P7.2: transitionGoalState only ever returns a non-empty array
+      // here when *this* call is what earned it — see that action's own
+      // comment and AchievementCelebration's for why that's enough on
+      // its own to guarantee this never fires twice for one grant.
+      if (result.data.unlockedAchievements.length > 0) {
+        setUnlocked(result.data.unlockedAchievements);
+      }
     });
   }
 
@@ -62,6 +72,7 @@ export function GoalStateActions({
 
   return (
     <div className="flex flex-col gap-2">
+      <AchievementCelebration unlocked={unlocked} />
       {error && (
         <p role="alert" className="text-destructive text-sm">
           {error}

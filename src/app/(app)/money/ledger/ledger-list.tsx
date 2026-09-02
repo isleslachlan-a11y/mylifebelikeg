@@ -37,12 +37,15 @@ export function LedgerList({
   pots,
   defaultCurrency,
   today,
+  hasActiveFilters,
 }: {
   initialRows: LedgerRowData[];
   goalOptions: GoalOption[];
   pots: PotOption[];
   defaultCurrency: string;
   today: string;
+  /** P5.5: distinguishes "nothing here yet" from "nothing matches these filters" — page.tsx computes this from its own searchParams, since this component has no filter state of its own to check. */
+  hasActiveFilters: boolean;
 }) {
   const router = useRouter();
   const [rows, setRows] = useState(initialRows);
@@ -95,7 +98,9 @@ export function LedgerList({
 
       {rows.length === 0 ? (
         <p className="text-muted-foreground text-sm">
-          No entries match these filters.
+          {hasActiveFilters
+            ? "No entries match these filters."
+            : "No entries yet — add your first one above."}
         </p>
       ) : (
         <ul className="flex flex-col gap-2">

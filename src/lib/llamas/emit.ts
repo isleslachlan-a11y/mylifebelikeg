@@ -18,12 +18,22 @@ import type { TriggerCode, TriggerParams } from "./types";
  * Never throws: a failed llama message shouldn't break whatever action
  * triggered it (e.g. completing a goal should succeed even if this
  * fails) — logged instead.
+ *
+ * `bodyOverride` (P7.4) skips `getLlamaCopy`'s randomly-picked variant
+ * entirely when supplied — the one caller that needs this is
+ * `src/lib/achievements/evaluate.ts`'s `celebrate()`, which has its own
+ * specific, pre-written line per achievement (`ACHIEVEMENT_UNLOCK_LINES`
+ * in copy.ts) rather than a generic templated one. Same reasoning
+ * `suggest_goal_limit_change`'s reason text gets rendered directly
+ * instead of re-templated (P4.5) — some copy is already exactly right at
+ * the source and doesn't need a second, randomised pass on top.
  */
 export async function emitLlamaMessage<K extends TriggerCode>(
   userId: string,
   trigger: K,
   params: TriggerParams[K],
   resource?: { type: string; id: string },
+  bodyOverride?: string,
 ): Promise<void> {
   const supabase = createServiceClient();
 
@@ -31,7 +41,7 @@ export async function emitLlamaMessage<K extends TriggerCode>(
     user_id: userId,
     speaker: getSpeaker(trigger),
     trigger_code: trigger,
-    body: getLlamaCopy(trigger, params),
+    body: bodyOverride ?? getLlamaCopy(trigger, params),
     priority: getPriority(trigger),
     resource_type: resource?.type ?? null,
     resource_id: resource?.id ?? null,

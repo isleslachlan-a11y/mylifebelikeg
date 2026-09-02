@@ -1,6 +1,6 @@
 # Data model
 
-Postgres / Supabase. 24 tables across 7 migrations, all validated against Postgres 16.
+Postgres / Supabase. 24 tables across 7 migrations. Originally validated against Postgres 16; the live project is on Postgres 17 as of P5.5's hardening pass (confirmed directly — a `supabase db dump` of the live schema includes `GRANT ... MAINTAIN`, a PG17-only privilege that a Postgres 16 scratch database rejects outright). `supabase/local/*`'s own scripts are unaffected by the difference; run them against a Postgres 17 scratch database now, not 16.
 
 ## Running it locally
 

@@ -112,3 +112,75 @@
     @apply font-sans;
   }
 }
+
+/* P5.3: the constellation archive's one animation — a subtle opacity
+   pulse on lit (completed) stars, per-star delay/duration set inline by
+   constellation-figure.tsx from a deterministic per-id hash, not by a
+   variant of this class per star. Unlit (abandoned) stars never get the
+   class at all, so they're static by construction, not just paused. */
+@keyframes constellation-twinkle {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.constellation-star {
+  animation-name: constellation-twinkle;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .constellation-star {
+    animation: none;
+  }
+}
+
+/* P7.2: <AchievementCelebration>'s two animations — a card that pops in
+   once, and a star token that pulses while it's on screen. "A modest
+   celebration" (brief, verbatim) — one pop-in, not a bounce or a
+   confetti burst, and the pulse is a subtle scale, not a spin. Same
+   dedicated-class-plus-scoped-media-query shape as .constellation-star
+   above, not Tailwind's motion-safe: variant — nothing else in this app
+   uses that variant, so this stays consistent with the one precedent
+   that already exists rather than introducing a second convention. */
+@keyframes achievement-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.achievement-celebration-card {
+  animation: achievement-pop-in 400ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .achievement-celebration-card {
+    animation: none;
+  }
+}
+
+@keyframes achievement-star-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 0.85;
+  }
+}
+.achievement-star {
+  animation: achievement-star-pulse 1.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .achievement-star {
+    animation: none;
+  }
+}

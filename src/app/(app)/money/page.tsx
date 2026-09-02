@@ -24,11 +24,20 @@ export default async function MoneyPage() {
   }
   const userId = auth.claims.sub;
 
-  const { data: profile } = await supabase
+  const { data: profile, error: profileError } = await supabase
     .from("profiles")
     .select("base_currency")
     .eq("id", userId)
     .single();
+  // A real failure here used to silently fall back to "AUD" and label
+  // every real number on this page with the wrong currency code instead
+  // of surfacing (P5.5's Supabase-call audit, same class of bug as
+  // AppLayout's own profile fetch) — thrown instead, same reasoning:
+  // this route is reached post-onboarding, so any error at all here is
+  // unexpected.
+  if (profileError) {
+    throw new Error(profileError.message);
+  }
   const baseCurrency = profile?.base_currency ?? "AUD";
 
   const [

@@ -24,23 +24,41 @@ export default async function AppLayout({
     redirect("/login");
   }
 
-  const { data: profile } = await supabase
+  const { data: profile, error: profileError } = await supabase
     .from("profiles")
     .select("display_name")
     .eq("id", auth.claims.sub)
     .single();
+  // .single() sets error for *both* "no row" (PGRST116 — a real new
+  // signup, correctly sent to onboarding) and a genuine query failure.
+  // Conflating them used to mean a transient failure here silently
+  // bounced an already-onboarded user into onboarding on every page in
+  // the app (this layout wraps all of them) — thrown instead, so the
+  // new error boundary says so rather than misrouting (P5.5's
+  // Supabase-call audit).
+  if (profileError && profileError.code !== "PGRST116") {
+    throw new Error(profileError.message);
+  }
   if (!profile) {
     redirect("/onboarding");
   }
 
   // P4.6's inbox — undismissed messages, newest first. llama_messages_select's
   // RLS (user_id = auth.uid()) already scopes this to the signed-in user.
-  const { data: llamaMessages } = await supabase
+  // A failure here degrades to an empty inbox rather than breaking the
+  // shell every other page renders inside — logged so that degradation
+  // is at least visible server-side (P5.5's Supabase-call audit), not
+  // thrown, since a quiet inbox is a far smaller loss than the whole
+  // app going down over one non-essential fetch.
+  const { data: llamaMessages, error: llamaMessagesError } = await supabase
     .from("llama_messages")
     .select("id, speaker, body, read_at")
     .is("dismissed_at", null)
     .order("created_at", { ascending: false })
     .limit(30);
+  if (llamaMessagesError) {
+    console.error("AppLayout: llama inbox fetch failed", llamaMessagesError);
+  }
   const inboxMessages = (llamaMessages ?? []).map((m) => ({
     id: m.id,
     speaker: m.speaker,
@@ -50,7 +68,10 @@ export default async function AppLayout({
 
   return (
     <div className="flex min-h-screen">
-      <Sidebar displayName={profile.display_name} inboxMessages={inboxMessages} />
+      <Sidebar
+        displayName={profile.display_name}
+        inboxMessages={inboxMessages}
+      />
       <div className="flex flex-1 flex-col">
         <MobileHeader
           displayName={profile.display_name}

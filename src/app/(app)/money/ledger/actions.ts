@@ -5,6 +5,8 @@ import { revalidatePath } from "next/cache";
 
 import { createClient } from "@/lib/supabase/server";
 import { humanizeDbError } from "@/lib/errors";
+import { evaluateAchievements } from "@/lib/achievements/evaluate";
+import type { NewlyUnlockedAchievement } from "@/lib/achievements/types";
 import type { Database } from "@/types/database";
 
 type LedgerEntry = Database["public"]["Tables"]["ledger_entries"]["Row"];
@@ -64,11 +66,24 @@ async function getUserContext(
   }
   const userId = auth.claims.sub;
 
-  const { data: profile } = await supabase
+  const { data: profile, error: profileError } = await supabase
     .from("profiles")
     .select("base_currency")
     .eq("id", userId)
     .single();
+  // Unlike the page-level profile fetches, this is a server action
+  // helper — it can't throw into an error boundary, it has to keep
+  // returning so the caller can produce a normal ActionResult. The
+  // fallback only ever surfaces inside insertEntry's own
+  // NO_FX_RATE_SQLSTATE error message text (never used for the actual
+  // ledger write, which the database's own BEFORE INSERT trigger stamps
+  // independently from the real profiles.base_currency) — logged rather
+  // than left fully silent, matching the "log then degrade" shape
+  // AppLayout's own llama-inbox fetch already uses for a similarly
+  // non-critical failure.
+  if (profileError) {
+    console.error("getUserContext: profile fetch failed", profileError);
+  }
 
   return { userId, baseCurrency: profile?.base_currency ?? "AUD" };
 }
@@ -143,15 +158,36 @@ function revalidateFor(goalId: string | null): void {
 
 export async function createLedgerEntry(
   input: LedgerEntryInput,
-): Promise<ActionResult<LedgerEntry>> {
+): Promise<
+  ActionResult<
+    LedgerEntry & { unlockedAchievements: NewlyUnlockedAchievement[] }
+  >
+> {
   const supabase = await createClient();
   const { userId, baseCurrency } = await getUserContext(supabase);
 
   const result = await insertEntry(supabase, userId, baseCurrency, input);
-  if (result.ok) {
-    revalidateFor(input.goalId);
+  if (!result.ok) {
+    return result;
   }
-  return result;
+  revalidateFor(input.goalId);
+
+  // P7.2: a ledger entry is a discrete event, so this always runs — not
+  // debounced. Only the literal "add an entry" path (this function), not
+  // updateLedgerEntry's own internal insert-then-delete-old (that's an
+  // edit, not a creation, even though it shares insertEntry under the
+  // hood). Never blocks the save itself, which has already committed.
+  let unlockedAchievements: NewlyUnlockedAchievement[] = [];
+  try {
+    unlockedAchievements = await evaluateAchievements(supabase, userId);
+  } catch (evalError) {
+    console.error(
+      "Achievement evaluation failed after ledger entry creation",
+      evalError,
+    );
+  }
+
+  return { ok: true, data: { ...result.data, unlockedAchievements } };
 }
 
 /**
@@ -183,7 +219,11 @@ export async function createLedgerEntry(
 export async function updateLedgerEntry(
   id: string,
   input: LedgerEntryInput,
-): Promise<ActionResult<LedgerEntry>> {
+): Promise<
+  ActionResult<
+    LedgerEntry & { unlockedAchievements: NewlyUnlockedAchievement[] }
+  >
+> {
   const supabase = await createClient();
   const { userId, baseCurrency } = await getUserContext(supabase);
 
@@ -210,7 +250,12 @@ export async function updateLedgerEntry(
   }
 
   revalidateFor(input.goalId);
-  return insertResult;
+  // Always empty: an edit never evaluates achievements (see
+  // createLedgerEntry's own comment on why only a real creation does) —
+  // this shape match is what lets ledger-entry-dialog.tsx read
+  // unlockedAchievements off either function's result without a type
+  // guard for which one actually ran.
+  return { ok: true, data: { ...insertResult.data, unlockedAchievements: [] } };
 }
 
 export async function deleteLedgerEntry(

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition, type FormEvent } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
@@ -167,21 +168,43 @@ export function GoalForm({
         </Select>
       </div>
 
+      {/* P6.3: kind isn't a plain choice here anymore. A trip-kind goal
+          needs a matching trips row (created atomically by
+          app.create_trip_goal — see /trips/new) or it's an orphan: tagged
+          as a trip with no stops/legs/estimates to show for it. So this
+          form can't be where kind flips to "trip" (no "Trip" option in
+          create mode), and can't be where an existing trip-kind goal
+          flips back to "standard" either (the select is disabled once
+          kind is already "trip" — nothing enforces that direction at the
+          database level, unlike trips_kind_check's own goal_id → kind
+          check, so the UI is what holds the line). */}
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="kind">Kind</Label>
-        <Select value={kind} onValueChange={(v) => setKind(v as GoalKind)}>
+        <Select
+          value={kind}
+          onValueChange={(v) => setKind(v as GoalKind)}
+          disabled={kind === "trip"}
+        >
           <SelectTrigger id="kind">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="standard">Standard</SelectItem>
-            <SelectItem value="trip">Trip</SelectItem>
+            {kind === "trip" && <SelectItem value="trip">Trip</SelectItem>}
           </SelectContent>
         </Select>
-        {kind === "trip" && (
+        {kind === "trip" ? (
           <p className="text-muted-foreground text-xs">
-            Trip features aren&rsquo;t built yet — this just tags the goal as a
-            trip for later.
+            Stops, legs and the budget rollup live on the trip&rsquo;s own page
+            — this form only edits the goal itself.
+          </p>
+        ) : (
+          <p className="text-muted-foreground text-xs">
+            Building a trip?{" "}
+            <Link href="/trips/new" className="underline">
+              Start a trip
+            </Link>{" "}
+            instead — it creates the goal and trip together.
           </p>
         )}
       </div>

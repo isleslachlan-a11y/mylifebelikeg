@@ -27,7 +27,15 @@ export type TriggerCode =
   | "checkin_streak"
   | "first_goal"
   | "trip_booked"
-  | "goal_improved";
+  | "goal_improved"
+  | "goal_projected_late"
+  | "bucket_list_milestone"
+  | "trip_completed"
+  | "trip_over_budget"
+  | "stop_unbooked_soon"
+  | "first_trip"
+  | "first_budget_set"
+  | "achievement_unlocked";
 
 /** Typed parameters each trigger's copy templates need. */
 export type TriggerParams = {
@@ -80,6 +88,78 @@ export type TriggerParams = {
   first_goal: { goalTitle: string };
   trip_booked: { tripTitle: string };
   goal_improved: { goalTitle: string };
+  /**
+   * P5.2: `app.goal_projected_end` (0021) run past the goal's own
+   * `target_date` — the CPM-driven counterpart to `budget_exceeded`'s
+   * money version, for schedule instead. `daysLate` is the gap in
+   * calendar days, always positive (the evaluator only fires this when
+   * projected is strictly after target — see evaluate.ts).
+   */
+  goal_projected_late: { goalTitle: string; daysLate: number };
+  /**
+   * P6.1 brief, verbatim: "Fluffy delivers a milestone message at every
+   * tenth item added." Emitted inline from `someday/actions.ts`'s
+   * `createSomedayItem` the instant a fresh count is an exact multiple of
+   * 10 — same "exactly once, at the moment, not polled for" shape as
+   * `goal_completed` (see CLAUDE.md). Renamed from `someday_milestone`
+   * in P6.6 to match that brief's exact trigger list — no behaviour
+   * change, same emit site.
+   */
+  bucket_list_milestone: { count: number };
+  /**
+   * P6.6: the trip-flavoured sibling of `goal_completed` — emitted
+   * *instead of* it (not alongside) when the completed goal is
+   * `kind: 'trip'`, from the same `transitionGoalState` call site.
+   */
+  trip_completed: { tripTitle: string };
+  /**
+   * P6.6: `v_trip_estimates.total_estimate_minor` past the trip goal's
+   * own `target_amount_minor` — the trip-specific sibling of
+   * `budget_exceeded`, which only ever looks at `v_goal_funding`'s
+   * ledger-derived spend and has no notion of stops/legs. `overMinor` is
+   * already the difference, same shape `allocation_over_capacity` uses,
+   * so the copy doesn't have to subtract twice.
+   */
+  trip_over_budget: { tripTitle: string; overMinor: number; currency: string };
+  /**
+   * P6.6 brief, verbatim: "a stop within 30 days still at idea."
+   * `daysUntil` is always 0-30 inclusive by construction of the
+   * evaluator's own window — never negative (a past stop isn't "soon"
+   * anymore, it's just late, which this trigger doesn't cover).
+   */
+  stop_unbooked_soon: {
+    stopName: string;
+    tripTitle: string;
+    daysUntil: number;
+  };
+  /** P6.6: "a small number of messages that only fire once, on first use of a feature" (brief) — the trip-planning sibling of `first_goal`, fired once, the first time a user's very first trip-kind goal is created. */
+  first_trip: { tripTitle: string };
+  /**
+   * P6.6: another first-use message (brief, verbatim: "a first-run line
+   * from each llama") — Derek's, since target amounts are squarely his
+   * territory (`budget_exceeded`/`capacity_shortfall`/
+   * `allocation_over_capacity`/`goal_projected_late`). Fires once, the
+   * first time any goal (standard or trip) is created with `funding !==
+   * 'none'`.
+   */
+  first_budget_set: { goalTitle: string };
+  /**
+   * P7.2: fired from `src/lib/achievements/evaluate.ts`'s `celebrate`,
+   * once per grant — `app.evaluate_achievements`/`app.grant_achievement`
+   * (0026) are both idempotent, so this trigger's own condition ("a code
+   * just moved from locked to unlocked, for this user, for the first
+   * time ever") can only ever be true once per achievement, the same
+   * "fresh count of 1" shape `first_goal`/`first_trip`/`first_budget_set`
+   * already rely on for their own once-only guarantee. This is the
+   * durable half of the unlock moment — the persisted, always-in-the-
+   * inbox record — not the live celebration itself; see
+   * `<AchievementCelebration>` for the ephemeral, in-context half the
+   * P7.2 brief also asks for ("a modest celebration... star token, a
+   * brief animation"), which uses its own copy rather than this
+   * trigger's randomly-picked variant, so the two don't need to match
+   * word for word.
+   */
+  achievement_unlocked: { achievementName: string };
 };
 
 /** Display metadata for the two speakers — not database-derived, just copy. */

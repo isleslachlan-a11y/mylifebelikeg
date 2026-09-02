@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { AchievementCelebration } from "@/components/achievement-celebration";
 import { NewGoalBadge, RagBadge } from "@/components/rag-badge";
+import { evaluateAchievementsDebounced } from "@/lib/achievements/evaluate";
 import { evaluateLlamaTriggers } from "@/lib/llamas/evaluate";
 import { isGracePeriod, type GoalRag, type RagStatus } from "@/lib/rag";
 import { createClient } from "@/lib/supabase/server";
@@ -47,6 +49,26 @@ export default async function DashboardPage() {
     await evaluateLlamaTriggers(supabase, auth.claims.sub);
   } catch (evalError) {
     console.error("Llama evaluation failed on dashboard load", evalError);
+  }
+
+  // P7.2: the one genuine poll among achievement evaluation's five
+  // trigger sites — the other four (check-in submit, goal/trip
+  // completion, a ledger entry) are discrete events and always run
+  // uncached. Debounced to at most once an hour per user inside
+  // evaluateAchievementsDebounced itself, same shape as
+  // evaluateLlamaTriggers just above but against its own
+  // achievements_evaluated_at column (0028), not llama_evaluated_at —
+  // two independent systems, two independent clocks.
+  let unlockedAchievements: Awaited<
+    ReturnType<typeof evaluateAchievementsDebounced>
+  > = [];
+  try {
+    unlockedAchievements = await evaluateAchievementsDebounced(
+      supabase,
+      auth.claims.sub,
+    );
+  } catch (evalError) {
+    console.error("Achievement evaluation failed on dashboard load", evalError);
   }
 
   // Active goals this viewer participates in — goals_select's RLS
@@ -110,6 +132,7 @@ export default async function DashboardPage() {
 
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-6 p-6">
+      <AchievementCelebration unlocked={unlockedAchievements} />
       <h1 className="font-display text-3xl">Dashboard</h1>
 
       {!hasAnyGoals ? (

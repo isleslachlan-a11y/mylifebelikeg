@@ -60,6 +60,46 @@ const CONSTRAINT_MESSAGES: Record<string, string> = {
   fx_rates_rate_check: "Rate must be greater than zero.",
   ledger_entries_currency_check: "Currency must be a 3-letter code.",
   ledger_entries_amount_minor_check: "Amount must be greater than zero.",
+  // P6.1, confirmed against the live schema (a scratch `supabase db dump`,
+  // same technique as P5.1's — not guessed, unlike some entries above).
+  someday_coords_paired: "Enter both latitude and longitude, or neither.",
+  someday_cost_needs_currency: "A rough cost needs a currency.",
+  someday_items_currency_check: "Currency must be a 3-letter code.",
+  someday_items_latitude_check: "Latitude must be between -90 and 90.",
+  someday_items_longitude_check: "Longitude must be between -180 and 180.",
+  someday_items_rough_cost_minor_check: "Rough cost can't be negative.",
+  someday_items_title_check: "Title can't be empty.",
+  unsplash_needs_attribution:
+    "That photo is missing attribution — try picking it again.",
+  // P6.3, confirmed against the live schema (same `supabase db dump`
+  // technique as P6.1's entries above).
+  trips_origin_lat_check: "Latitude must be between -90 and 90.",
+  trips_origin_lng_check: "Longitude must be between -180 and 180.",
+  stop_coords_paired: "Enter both latitude and longitude, or neither.",
+  stop_cost_needs_currency: "A cost estimate needs a currency.",
+  stop_unsplash_needs_attribution:
+    "That photo is missing attribution — try picking it again.",
+  trip_stops_currency_check: "Currency must be a 3-letter code.",
+  trip_stops_estimated_cost_minor_check: "Cost can't be negative.",
+  trip_stops_latitude_check: "Latitude must be between -90 and 90.",
+  trip_stops_longitude_check: "Longitude must be between -180 and 180.",
+  trip_stops_name_check: "Name can't be empty.",
+  trip_stops_nights_check: "Nights can't be negative.",
+  leg_cost_needs_currency: "A cost estimate needs a currency.",
+  leg_endpoints_differ: "A leg can't start and end at the same stop.",
+  leg_has_an_endpoint: "A leg needs at least one endpoint.",
+  trip_legs_cost_minor_check: "Cost can't be negative.",
+  trip_legs_currency_check: "Currency must be a 3-letter code.",
+  trip_legs_duration_minutes_check: "Duration can't be negative.",
+  // Partial unique index, not a named table constraint (trip_stops
+  // (trip_id, sequence) where deleted_at is null) — Postgres still
+  // reports it as a "constraint" violation by the index's name, same
+  // shape as life_areas_user_name_key above. In practice this should
+  // only ever surface from a genuine race (two stops added at once);
+  // app.reorder_trip_stop's own park-then-renumber algorithm exists
+  // specifically so a normal reorder never hits it.
+  trip_stops_sequence_unique:
+    "That stop order changed elsewhere — refresh and try again.",
 };
 
 const FALLBACK_MESSAGE = "Something went wrong — please try again.";
@@ -90,6 +130,39 @@ function extractConstraintName(
 // raised (non-constraint) exception this app surfaces to a form today.
 const CYCLE_MESSAGE_RE = /would create a cycle/i;
 
+// app.enforce_trip_goal_kind (P6.3, trips_kind_check) rejects the same
+// way — a RAISE EXCEPTION, not a named constraint. In practice this
+// should never surface through the UI (create_trip_goal always creates
+// the goal with kind = 'trip' in the same transaction before the trips
+// insert), but it's the one path that could still hit it: a direct
+// trips insert against a goal that was never a trip to begin with.
+const TRIP_GOAL_KIND_RE = /trips\.goal_id must reference a goal with kind/i;
+
+// P7.1: app.validate_avatar() (migration 0026) raises three distinct
+// shapes when profiles.avatar is written, none of them a named
+// constraint — same "raised exception, not CONSTRAINT_NAME_RE-matchable"
+// situation as prevent_dependency_cycle/enforce_trip_goal_kind above.
+// avatar-editor.tsx already prevents all three client-side (a locked
+// preset can't be clicked, an unknown/wrong-slot code never reaches the
+// save action to begin with) — these mappings are defense in depth for
+// a direct write outside that UI, not a path real usage should hit.
+const AVATAR_LOCKED_RE = /is not unlocked yet$/i;
+const AVATAR_UNKNOWN_SLOT_RE = /^Unknown avatar slot:/i;
+const AVATAR_INVALID_PRESET_RE =
+  /^Unknown avatar preset:|belongs to category .+, not /i;
+
+// P7.3: app.enforce_pin_limit (0026) rejects a fourth pin the same way —
+// a RAISE EXCEPTION, not a named constraint. achievement-grid.tsx
+// already disables the pin control once three are pinned, so this is
+// defense in depth, same relationship the avatar-lock mappings above
+// have to their own already-client-prevented UI. Its raised message
+// ("You can pin at most three achievements") already reads fine to an
+// end user — still routed through this function rather than passed
+// through raw, so nothing here bypasses the "never render error.message
+// directly" rule on the technicality that one message happens to be
+// pre-written politely.
+const PIN_LIMIT_RE = /can pin at most three achievements/i;
+
 /** Map a Postgres/PostgREST error to a user-facing sentence. Logs the original for unmatched cases. */
 export function humanizeDbError(
   error: Pick<PostgrestError, "message" | "details">,
@@ -102,6 +175,21 @@ export function humanizeDbError(
 
   if (CYCLE_MESSAGE_RE.test(error.message)) {
     return "That would create a circular dependency.";
+  }
+  if (TRIP_GOAL_KIND_RE.test(error.message)) {
+    return "That goal isn't a trip.";
+  }
+  if (AVATAR_LOCKED_RE.test(error.message)) {
+    return "That option isn't unlocked yet.";
+  }
+  if (
+    AVATAR_UNKNOWN_SLOT_RE.test(error.message) ||
+    AVATAR_INVALID_PRESET_RE.test(error.message)
+  ) {
+    return "That avatar option isn't valid — refresh and try again.";
+  }
+  if (PIN_LIMIT_RE.test(error.message)) {
+    return "You can only pin three achievements — unpin one first.";
   }
 
   console.error(

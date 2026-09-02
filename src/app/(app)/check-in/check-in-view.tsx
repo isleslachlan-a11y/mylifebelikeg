@@ -2,9 +2,11 @@
 
 import { useState } from "react";
 
+import { AchievementCelebration } from "@/components/achievement-celebration";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import type { NewlyUnlockedAchievement } from "@/lib/achievements/types";
 import { saveCapacityRating, saveOverallNote, submitCheckIn } from "./actions";
 import { formatCheckInPeriod } from "./format-period";
 import { GoalRatingCard, type CheckInGoal } from "./goal-rating-card";
@@ -56,6 +58,7 @@ export function CheckInView({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [stepIndex, setStepIndex] = useState(0);
+  const [unlocked, setUnlocked] = useState<NewlyUnlockedAchievement[]>([]);
 
   const steps: Step[] = [
     ...goals.map((goal): Step => ({ kind: "goal", goal })),
@@ -90,6 +93,9 @@ export function CheckInView({
     }
     setError(null);
     setSubmitted(true);
+    if (result.data.unlockedAchievements.length > 0) {
+      setUnlocked(result.data.unlockedAchievements);
+    }
   }
 
   const header = (
@@ -159,6 +165,7 @@ export function CheckInView({
 
     return (
       <div className="mx-auto flex min-h-dvh max-w-md flex-col gap-6 p-6">
+        <AchievementCelebration unlocked={unlocked} />
         {header}
         <div className="flex-1">
           {step.kind === "goal" && (
@@ -181,7 +188,9 @@ export function CheckInView({
           </p>
           <Button
             variant="outline"
-            onClick={() => setStepIndex((i) => Math.min(steps.length - 1, i + 1))}
+            onClick={() =>
+              setStepIndex((i) => Math.min(steps.length - 1, i + 1))
+            }
             disabled={isLast}
             className={isLast ? "invisible" : undefined}
           >
@@ -194,6 +203,7 @@ export function CheckInView({
 
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-8 p-6">
+      <AchievementCelebration unlocked={unlocked} />
       {header}
       {goals.length > 0 ? (
         <div className="flex flex-col gap-4">

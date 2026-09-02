@@ -6,6 +6,8 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { humanizeDbError } from "@/lib/errors";
 import { emitLlamaMessage } from "@/lib/llamas/emit";
+import { evaluateAchievements } from "@/lib/achievements/evaluate";
+import type { NewlyUnlockedAchievement } from "@/lib/achievements/types";
 import type { Database } from "@/types/database";
 import { ALLOWED_GOAL_TRANSITIONS, type GoalState } from "./goal-transitions";
 
@@ -79,12 +81,57 @@ export async function createGoal(input: GoalFormInput): Promise<ActionResult> {
   const supabase = await createClient();
   const userId = await getUserId(supabase);
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("goals")
-    .insert({ ...toRow(input), owner_id: userId });
+    .insert({ ...toRow(input), owner_id: userId })
+    .select("id")
+    .single();
 
   if (error) {
     return { ok: false, error: humanizeDbError(error) };
+  }
+
+  // P6.6: "a small number of messages that only fire once, on first use
+  // of a feature" (brief) — both checks are naturally idempotent (a
+  // fresh count of 1 can only ever be true immediately after the very
+  // first row), so neither needs `hasUndismissedMessage`-style dedupe
+  // the way evaluate.ts's polled triggers do. goal-form.tsx no longer
+  // lets `kind` be "trip" in create mode (P6.3), so every goal this
+  // action creates is standard — first_goal firing here is never
+  // ambiguous with first_trip (trips/actions.ts's own first-use check).
+  const { count: goalCount, error: goalCountError } = await supabase
+    .from("goals")
+    .select("id", { count: "exact", head: true })
+    .eq("owner_id", userId)
+    .is("deleted_at", null);
+  if (goalCountError) {
+    console.error("First-goal count failed", goalCountError);
+  } else if (goalCount === 1) {
+    await emitLlamaMessage(
+      userId,
+      "first_goal",
+      { goalTitle: input.title.trim() },
+      { type: "goal", id: data.id },
+    );
+  }
+
+  if (input.funding !== "none") {
+    const { count: fundedCount, error: fundedCountError } = await supabase
+      .from("goals")
+      .select("id", { count: "exact", head: true })
+      .eq("owner_id", userId)
+      .is("deleted_at", null)
+      .neq("funding", "none");
+    if (fundedCountError) {
+      console.error("First-budget count failed", fundedCountError);
+    } else if (fundedCount === 1) {
+      await emitLlamaMessage(
+        userId,
+        "first_budget_set",
+        { goalTitle: input.title.trim() },
+        { type: "goal", id: data.id },
+      );
+    }
   }
 
   revalidatePath("/goals");
@@ -144,13 +191,13 @@ export async function transitionGoalState(
   id: string,
   targetState: GoalState,
   abandonReason?: string,
-): Promise<ActionResult> {
+): Promise<ActionResult<{ unlockedAchievements: NewlyUnlockedAchievement[] }>> {
   const supabase = await createClient();
   const userId = await getUserId(supabase);
 
   const { data: goal, error: fetchError } = await supabase
     .from("goals")
-    .select("id, title, state, owner_id")
+    .select("id, title, state, owner_id, kind")
     .eq("id", id)
     .maybeSingle();
 
@@ -217,19 +264,48 @@ export async function transitionGoalState(
 
   // Fluffy celebrates a completion; abandoning gets no llama commentary
   // on a decision to stop (see P1.3's notes) — every other transition is
-  // silent too, nothing in the registry calls for them.
+  // silent too, nothing in the registry calls for them. P6.6: a
+  // trip-kind goal gets trip_completed *instead of* goal_completed, not
+  // both — one celebration per completion, just in the voice that fits
+  // what was actually completed.
+  let unlockedAchievements: NewlyUnlockedAchievement[] = [];
   if (targetState === "completed") {
-    await emitLlamaMessage(
-      userId,
-      "goal_completed",
-      { goalTitle: goal.title },
-      { type: "goal", id: goal.id },
-    );
+    if (goal.kind === "trip") {
+      await emitLlamaMessage(
+        userId,
+        "trip_completed",
+        { tripTitle: goal.title },
+        { type: "goal", id: goal.id },
+      );
+    } else {
+      await emitLlamaMessage(
+        userId,
+        "goal_completed",
+        { goalTitle: goal.title },
+        { type: "goal", id: goal.id },
+      );
+    }
+
+    // P7.2: goal completion *and* trip completion are the same code
+    // path here (branched above only on which llama message to send),
+    // so this one call covers both of the brief's "goal completion" and
+    // "trip completion" triggers — there's nothing trip-specific about
+    // which achievements this could unlock that needs a second call.
+    // Never blocks the transition itself, which has already committed
+    // by this point.
+    try {
+      unlockedAchievements = await evaluateAchievements(supabase, userId);
+    } catch (evalError) {
+      console.error(
+        "Achievement evaluation failed after goal completion",
+        evalError,
+      );
+    }
   }
 
   revalidatePath("/goals");
   revalidatePath(`/goals/${id}`);
-  return { ok: true, data: undefined };
+  return { ok: true, data: { unlockedAchievements } };
 }
 
 /** Always a soft delete (deleted_at) — never a hard DELETE, and distinct from archiving. */

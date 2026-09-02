@@ -71,12 +71,25 @@ export function LifeAreaRow({
         isDragging && "opacity-50",
       )}
     >
+      {/* P5.5's mobile pass: both buttons below measured under the 44px
+          tap-target floor (16x16 and 20x20). max-md: keeps desktop's
+          compact row density untouched — this settings page has no
+          separate mobile layout the way the timeline does, so the fix
+          has to live in the shared markup itself. The drag handle gets
+          a straightforward bigger invisible box (flex-centring the
+          icon inside it, same technique llama-message.tsx's dismiss
+          button already uses); the colour swatch can't grow the same
+          way without visually enlarging the dot itself (its own
+          background-color fills the whole button), so it gets an
+          absolutely-positioned, transparent ::after instead — the
+          visible 20px swatch stays exactly as small, only the invisible
+          hit area around it grows. */}
       <button
         type="button"
         {...attributes}
         {...listeners}
         aria-label={`Reorder ${area.name}`}
-        className="text-muted-foreground hover:text-foreground cursor-grab touch-none active:cursor-grabbing"
+        className="text-muted-foreground hover:text-foreground flex cursor-grab touch-none items-center justify-center active:cursor-grabbing max-md:size-11"
       >
         <GripVertical className="size-4" />
       </button>
@@ -86,7 +99,7 @@ export function LifeAreaRow({
           <button
             type="button"
             aria-label={`Colour: ${lifeAreaColourLabel(area.colour)}`}
-            className="ring-foreground/10 size-5 shrink-0 rounded-full ring-1"
+            className="ring-foreground/10 relative size-5 shrink-0 rounded-full ring-1 max-md:after:absolute max-md:after:inset-[-12px] max-md:after:content-['']"
             style={{ backgroundColor: area.colour }}
           />
         </PopoverTrigger>
@@ -151,6 +164,9 @@ export function LifeAreaRow({
           type="button"
           variant="ghost"
           size="icon-sm"
+          // max-md: same 44px-floor fix as the two buttons above —
+          // overrides icon-sm's shared 28px on mobile only.
+          className="max-md:size-11"
           aria-label={`Delete ${area.name}`}
           onClick={onRequestDelete}
         >

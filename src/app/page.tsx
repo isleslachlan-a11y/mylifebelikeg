@@ -11,11 +11,19 @@ export default async function Home() {
     redirect("/login");
   }
 
-  const { data: profile } = await supabase
+  const { data: profile, error: profileError } = await supabase
     .from("profiles")
     .select("id")
     .eq("id", auth.claims.sub)
     .maybeSingle();
+  // maybeSingle() only ever sets error for a genuine query failure — a
+  // real "no profile row yet" is data: null, error: null. Conflating the
+  // two used to mean a transient failure here silently redirected an
+  // already-onboarded user into /onboarding; throwing instead lets the
+  // root error boundary say so honestly (P5.5's Supabase-call audit).
+  if (profileError) {
+    throw new Error(profileError.message);
+  }
 
   redirect(profile ? "/dashboard" : "/onboarding");
 }

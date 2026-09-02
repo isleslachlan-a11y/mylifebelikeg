@@ -20,7 +20,7 @@ import { widthForItem } from "./scale";
  * fresh than to lean on that.
  */
 
-export type StackableItemType = "goal" | "milestone" | "task";
+export type StackableItemType = "goal" | "milestone" | "task" | "trip_stop";
 
 export type StackableItem = {
   item_id: string;
@@ -150,9 +150,13 @@ function stackByRow(
  *   not this module's job. The row only exists at all if `items`
  *   actually contains at least one milestone; a lane with none stacks
  *   its bars starting at row 0 directly.
- * - Tasks ("bars") are stacked beneath the milestone row (if any) via
- *   greedy interval partitioning, in the deterministic order
- *   `comparePlacementOrder` defines.
+ * - Tasks and trip stops ("bars") are stacked beneath the milestone row
+ *   (if any) via greedy interval partitioning, in the deterministic
+ *   order `comparePlacementOrder` defines. Trip stops (P6.5) get no
+ *   special treatment here — "stops stack within their lane using the
+ *   same P3.2 algorithm. No new logic" (brief, verbatim): they compete
+ *   for sub-rows exactly like tasks do, mixed into the same greedy pass
+ *   rather than reserved a row of their own the way milestones are.
  */
 export function assignSubRows(
   items: StackableItem[],
@@ -164,7 +168,9 @@ export function assignSubRows(
     opts.estimateLabelWidth ?? defaultEstimateLabelWidth;
 
   const milestones = items.filter((item) => item.item_type === "milestone");
-  const bars = items.filter((item) => item.item_type === "task");
+  const bars = items.filter(
+    (item) => item.item_type === "task" || item.item_type === "trip_stop",
+  );
 
   const subRows = new Map<string, number>();
 

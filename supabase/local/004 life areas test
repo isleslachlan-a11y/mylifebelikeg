@@ -30,7 +30,17 @@ begin
   end;
 end $$;
 
--- Same name is fine for a different user — uniqueness is per user, not global.
+-- Same name is fine for a different user — uniqueness is per user, not
+-- global. User B already has an active 'Money' too (app.seed_life_areas
+-- auto-seeds it for every new profile, same as user A's — found while
+-- running this suite fresh: this insert used to collide with that seeded
+-- row instead of proving anything about per-user scoping). Soft-delete
+-- and reinsert, same move already used on user A below, so this still
+-- exercises the insert path itself rather than relying on the seed
+-- trigger having done the proving for it.
+update life_areas set deleted_at = now()
+ where user_id = '22222222-2222-2222-2222-222222222222' and name = 'Money';
+
 insert into life_areas (user_id, name) values
   ('22222222-2222-2222-2222-222222222222', 'Money');
 

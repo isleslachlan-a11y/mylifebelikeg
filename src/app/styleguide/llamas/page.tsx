@@ -34,6 +34,22 @@ const EXAMPLES: { [K in TriggerCode]: TriggerParams[K] } = {
   first_goal: { goalTitle: "Move to London" },
   trip_booked: { tripTitle: "Japan 2027" },
   goal_improved: { goalTitle: "Emergency Fund" },
+  goal_projected_late: { goalTitle: "Move to London", daysLate: 13 },
+  bucket_list_milestone: { count: 10 },
+  trip_completed: { tripTitle: "Japan 2027" },
+  trip_over_budget: {
+    tripTitle: "Japan 2027",
+    overMinor: 45000,
+    currency: "AUD",
+  },
+  stop_unbooked_soon: {
+    stopName: "Kyoto",
+    tripTitle: "Japan 2027",
+    daysUntil: 18,
+  },
+  first_trip: { tripTitle: "Japan 2027" },
+  first_budget_set: { goalTitle: "Emergency Fund" },
+  achievement_unlocked: { achievementName: "First Light" },
 };
 
 // Every variant, rendered — not a random pick — so all copy is reviewable
@@ -64,9 +80,9 @@ export default function LlamaStyleguidePage() {
         </p>
         <h1 className="font-display text-5xl">Derek &amp; Fluffy</h1>
         <p className="text-muted-foreground max-w-prose font-sans">
-          Every trigger, both copy variants, read against each other. Read them
-          aloud — with the names hidden you should still be able to tell which
-          llama is talking.
+          Every trigger, all three copy variants, read against each other. Read
+          them aloud — with the names hidden you should still be able to tell
+          which llama is talking.
         </p>
       </header>
 

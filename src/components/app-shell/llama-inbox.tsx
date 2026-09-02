@@ -35,8 +35,17 @@ export type InboxMessage = {
  */
 export function LlamaInbox({
   initialMessages,
+  triggerClassName,
 }: {
   initialMessages: InboxMessage[];
+  /**
+   * P5.5's mobile pass: this trigger is `size-9` (36px) by default, fine
+   * for Sidebar's desktop density but under the 44px tap-target floor
+   * for MobileHeader's own instance — rather than bump the shared
+   * default (which would make Sidebar's icon oversized), the caller
+   * that actually needs 44px passes it here.
+   */
+  triggerClassName?: string;
 }) {
   const [messages, setMessages] = useState(initialMessages);
   const [, startTransition] = useTransition();
@@ -81,7 +90,10 @@ export function LlamaInbox({
           aria-label={
             unreadCount > 0 ? `Messages, ${unreadCount} unread` : "Messages"
           }
-          className="text-muted-foreground hover:bg-raised hover:text-foreground relative flex size-9 items-center justify-center rounded-full"
+          className={cn(
+            "text-muted-foreground hover:bg-raised hover:text-foreground relative flex size-9 items-center justify-center rounded-full",
+            triggerClassName,
+          )}
         >
           <Bell className="size-5" aria-hidden />
           {unreadCount > 0 && (

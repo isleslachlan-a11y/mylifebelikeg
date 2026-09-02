@@ -19,7 +19,7 @@
 
 export type GroupingMode = "life_area" | "owner" | "goal";
 
-export type LaneableItemType = "goal" | "milestone" | "task";
+export type LaneableItemType = "goal" | "milestone" | "task" | "trip_stop";
 
 export type LaneableItem = {
   item_id: string;

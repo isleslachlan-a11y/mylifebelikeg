@@ -12,7 +12,14 @@ export function MobileHeader({
     <header className="border-subtle bg-surface flex items-center justify-between border-b px-4 py-3 md:hidden">
       <span className="font-display text-foreground text-lg">Starmap</span>
       <div className="flex items-center gap-1">
-        <LlamaInbox initialMessages={inboxMessages} />
+        {/* P5.5's mobile pass: both bumped to size-11 (44px) here
+            specifically — the shared 36px default (LlamaInbox's own
+            Sidebar usage) measured under the tap-target floor on this,
+            the mobile-only header. */}
+        <LlamaInbox
+          initialMessages={inboxMessages}
+          triggerClassName="size-11"
+        />
         <AccountMenu displayName={displayName} />
       </div>
     </header>

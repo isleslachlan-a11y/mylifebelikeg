@@ -31,8 +31,15 @@ export function NavLink({
       aria-current={isActive ? "page" : undefined}
       className={cn(
         "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+        // P5.5's mobile pass: min-h-11/min-w-11 (44px) is the tab bar's
+        // own tap-target floor — measured under 44px in both dimensions
+        // before this (as small as 34x43), the wrapping <div>'s own
+        // py-2 in tab-bar.tsx doesn't count toward the tappable area
+        // since only this <a> itself receives the click. "row"
+        // orientation (the desktop sidebar) is untouched — sidebar
+        // items aren't touch targets in the same sense.
         orientation === "col" &&
-          "flex-col gap-1 rounded-none px-1 py-1 text-xs",
+          "min-h-11 min-w-11 flex-col gap-1 rounded-none px-1 py-1 text-xs",
         isActive
           ? "bg-raised text-primary"
           : "text-muted-foreground hover:bg-raised hover:text-foreground",

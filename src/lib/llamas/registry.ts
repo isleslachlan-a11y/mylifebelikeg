@@ -24,6 +24,20 @@ export const TRIGGER_REGISTRY: Record<TriggerCode, RegistryEntry> = {
   capacity_exceeded: { speaker: "derek", priority: 1 },
   capacity_shortfall: { speaker: "derek", priority: 1 },
   allocation_over_capacity: { speaker: "derek", priority: 1 },
+  // P5.2 brief, verbatim: "when projected end is past target date, Derek
+  // says so" — priority 1, same tier as task_overdue/budget_exceeded,
+  // the other two "the schedule/money says so, plainly" triggers.
+  goal_projected_late: { speaker: "derek", priority: 1 },
+  // P6.6: same tier as budget_exceeded/allocation_over_capacity — real
+  // money, ahead of what was set aside.
+  trip_over_budget: { speaker: "derek", priority: 1 },
+  // P6.6: a nudge, not yet a problem — "still recoverable if you act"
+  // territory, same tier as goal_amber, not task_overdue's priority 1
+  // (nothing's actually late yet).
+  stop_unbooked_soon: { speaker: "derek", priority: 2 },
+  // P6.6: a first-use note, incidental by nature — same tier as
+  // first_goal/first_trip below.
+  first_budget_set: { speaker: "derek", priority: 3 },
 
   goal_green: { speaker: "fluffy", priority: 3 },
   goal_completed: { speaker: "fluffy", priority: 1 },
@@ -31,11 +45,24 @@ export const TRIGGER_REGISTRY: Record<TriggerCode, RegistryEntry> = {
   first_goal: { speaker: "fluffy", priority: 3 },
   trip_booked: { speaker: "fluffy", priority: 2 },
   goal_improved: { speaker: "fluffy", priority: 3 },
+  // P6.1: a round-number milestone on the bucket list — celebratory, not
+  // urgent, same tier as checkin_streak/goal_improved. Renamed from
+  // someday_milestone in P6.6.
+  bucket_list_milestone: { speaker: "fluffy", priority: 3 },
   // P4.6 correction: a nudge that a weekly ritual is due reads as
   // encouragement, not a fault to call out — moved from Derek (its
   // speculative P0.6 assignment) to Fluffy, matching P4.6's own trigger
   // table exactly.
   checkin_due: { speaker: "fluffy", priority: 2 },
+  // P6.6: same tier as goal_completed — a real completion, always
+  // priority 1, never buried under incidental noise.
+  trip_completed: { speaker: "fluffy", priority: 1 },
+  // P6.6: same tier as first_goal — a first-use welcome, not urgent.
+  first_trip: { speaker: "fluffy", priority: 3 },
+  // P7.2 brief, verbatim: "the unlock moment is the payoff for the whole
+  // system" — same tier as goal_completed/trip_completed, never buried
+  // under incidental noise.
+  achievement_unlocked: { speaker: "fluffy", priority: 1 },
 };
 
 export function getSpeaker(trigger: TriggerCode): LlamaSpeaker {
