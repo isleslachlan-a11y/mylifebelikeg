@@ -24,6 +24,11 @@ Set these in Vercel → Project → Settings → Environment Variables.
 | `UNSPLASH_ACCESS_KEY`           | Access Key from an Unsplash app     | **Secret** (P6.0 — `<PhotoPicker>`'s search/download proxy; Demo apps are capped at 50 requests/hour until Unsplash approves the app for production) |
 | `NEXT_PUBLIC_MAPBOX_TOKEN`      | Public token from Mapbox            | Public (P6.2 — `<PlaceMap>`'s map rendering; **restrict by URL** in the Mapbox dashboard, see below)                                                 |
 | `MAPBOX_SECRET_TOKEN`           | Secret-scoped token from Mapbox     | **Secret** (P6.2 — `/api/geocode`'s search proxy)                                                                                                    |
+| `NEXT_PUBLIC_SENTRY_DSN`        | DSN from a Sentry project           | Public (P9.2 — DSNs are meant to be client-embedded; every `Sentry.init()` call is inert with none set, see "Error monitoring" below)                |
+| `SENTRY_ORG`                    | your Sentry org slug                | **Secret**-ish, build-only (P9.2 — source map upload; optional, skips with a warning if unset)                                                       |
+| `SENTRY_PROJECT`                | your Sentry project slug            | **Secret**-ish, build-only (P9.2 — source map upload; optional, skips with a warning if unset)                                                       |
+| `SENTRY_AUTH_TOKEN`             | auth token, `project:releases` scope| **Secret**, build-only (P9.2 — source map upload; optional, skips with a warning if unset)                                                           |
+| `HEALTH_CHECK_SECRET`           | any random string you generate      | **Secret** (P9.2 — required. Gates `/api/health`; give this to your uptime monitor, see "Uptime monitoring" below)                                   |
 
 Set these for the Production and Preview environments (Preview so PR
 deployments work end to end, not just production).
@@ -139,6 +144,109 @@ wrong turn (an early version had the DB function delete `profiles`
 directly, which turned out to have a real orphaned-`auth.users` failure
 mode — fixed before it shipped, kept in the comments as the reasoning
 for the order the final version uses).
+
+## Error monitoring
+
+`@sentry/nextjs` (P9.2), wired into all three runtimes this app has —
+`src/instrumentation-client.ts` (browser), `src/sentry.server.config.ts`
+(Node — Server Components, Server Actions, `/api/*` routes),
+`src/sentry.edge.config.ts` (Edge — `proxy.ts` itself). DSN-optional
+throughout: every `Sentry.init()` call is a no-op with
+`NEXT_PUBLIC_SENTRY_DSN` unset, so this app runs identically whether or
+not Sentry is configured — set the env var above when ready, nothing
+else to flip.
+
+**Scrubbing is not optional** — `src/lib/sentry-scrub.ts`'s `beforeSend`
+runs on every event, in every runtime, before it leaves the process.
+Request bodies are dropped wholesale (a server action's FormData
+routinely carries a goal's target amount, a ledger entry's amount);
+every other field is redacted by name against a pattern anchored on
+this codebase's own `_minor`-suffix money convention (CLAUDE.md rule
+1), so it structurally covers every monetary field this schema has or
+will ever have, not a hand-maintained list. Read that file's own header
+before changing it — the two techniques (drop-wholesale vs. redact-by-
+pattern) exist for different reasons and shouldn't be collapsed into one.
+
+Source maps and release tagging (`org`/`project`/`authToken` on
+`next.config.ts`'s `withSentryConfig`) read from `SENTRY_ORG`/
+`SENTRY_PROJECT`/`SENTRY_AUTH_TOKEN` automatically; the release name
+defaults to the git HEAD commit SHA with no config at all. Turbopack
+(this app's bundler) is supported directly — no webpack-specific setup
+needed, see `next.config.ts`'s own comment.
+
+Tracing is deliberately off (`tracesSampleRate: 0`) — this pass is
+error monitoring, not performance monitoring; turn tracing on
+separately and deliberately if it's ever wanted.
+
+## Uptime monitoring
+
+`/api/health` (P9.2) is the route to point an external monitor at — it
+requires the same bearer-token auth as the account-deletion processor
+(a **different** secret, `HEALTH_CHECK_SECRET`, not `CRON_SECRET` —
+this route is meant to be hit far more often, from a third party, and
+reusing the same secret would mean rotating one for the other), and
+its body touches the database (a cheap `select 1`-shaped query) so a
+green check actually means Postgres is reachable, not just that the
+Node process is up. See `src/app/api/health/route.ts`'s own comment
+for the exact shape.
+
+No monitoring account is wired up by this pass — that's a manual step:
+
+1. Create a free account at an uptime checker (UptimeRobot, Better
+   Stack, or similar — no strong preference, pick one with alerting
+   to somewhere you'll actually see it: email is the low bar, SMS/push
+   for anything better).
+2. Add an HTTP(S) monitor against
+   `https://my-life-be-like.vercel.app/api/health`, method GET, with
+   header `Authorization: Bearer <HEALTH_CHECK_SECRET>`.
+3. Check interval: 5 minutes is a reasonable default for an app this
+   size — tighter doesn't meaningfully change response time to an
+   incident, looser starts trading away the point of the check.
+4. Point alerting at an address/device you actually monitor, not a
+   shared inbox nobody watches.
+
+## Spend caps and usage alerts
+
+**Neither of these is configurable via API** — confirmed directly
+(Vercel CLI has no spend-limit command; Supabase's Management API has
+no usage/billing-alert endpoint) rather than assumed, so both are
+manual dashboard steps, not something a future migration or script can
+set up:
+
+- **Vercel**: Team Settings → Billing → Spend Management. Set a spend
+  limit — this is the backstop against a runaway bill from a bug or
+  abuse, not a everyday budget lever.
+- **Supabase usage alerts**: Organization Settings → Billing →
+  guardrails/notifications (exact page name varies by dashboard
+  version). Set alerts at 50%, 75%, and 90% of plan quota — **storage
+  specifically**, not just the general usage number: it's the one line
+  item that only ever grows as users join (dream photos, database
+  rows) and never shrinks the way, say, bandwidth naturally
+  fluctuates.
+
+## Rate limiting
+
+Two layers (P9.2), deliberately different mechanisms for different
+jobs — see `src/lib/rate-limit-edge.ts`'s own header for the full
+reasoning:
+
+- **Coarse, blanket**: `proxy.ts` throttles every write-method request
+  (POST/PUT/PATCH/DELETE — this covers Server Actions too, which Next.js
+  sends as POST to the same page route) per IP, in-memory,
+  best-effort — a backstop against a scripted flood, not a precise
+  guarantee, and not guaranteed to survive a cold start or hold
+  consistently across concurrent instances.
+- **Precise, named**: signup, login, and export each get a
+  Postgres-backed check (`src/lib/rate-limit.ts`, migration 0042) —
+  per-IP *and* per-account where both make sense (login, signup), which
+  survives restarts and is consistent across every instance, at the
+  cost of one DB round trip per call. Reserved for the handful of
+  surfaces where the limit actually needs to be exact.
+
+There is currently no password-reset flow in this app at all (checked
+directly — no `resetPasswordForEmail` call site exists), so there's
+nothing to rate-limit there yet; when one is built, it needs the same
+per-IP-and-per-account treatment as login.
 
 ## CI vs. deploy
 

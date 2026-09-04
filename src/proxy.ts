@@ -1,8 +1,24 @@
-import { type NextRequest } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 
 import { updateSession } from "@/lib/supabase/middleware";
+import { getClientIp } from "@/lib/get-client-ip";
+import { checkEdgeWriteLimit, isWriteMethod } from "@/lib/rate-limit-edge";
 
+/**
+ * P9.2: the coarse write-throttle (rate-limit-edge.ts's own header has
+ * the full reasoning) runs first, before touching Supabase at all --
+ * refusing here is strictly cheaper than refusing after a session
+ * refresh, and there's no reason a request about to be rejected should
+ * pay for one anyway.
+ */
 export async function proxy(request: NextRequest) {
+  if (isWriteMethod(request.method)) {
+    const ip = getClientIp(request.headers);
+    if (!checkEdgeWriteLimit(ip)) {
+      return new NextResponse("Too many requests.", { status: 429 });
+    }
+  }
+
   return updateSession(request);
 }
 
