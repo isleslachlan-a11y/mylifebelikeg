@@ -1,0 +1,243 @@
+-- LOCAL ONLY. Verifies P8.3: FX-stamped dream cost columns, the
+-- extended v_dream_affordability (capacity collision columns), and
+-- promote_dream_to_goal (guards, the goal <-> dream link, and that it
+-- never touches the existing promoted_at/trip-stop path).
+-- Run after 001 smoke test and 011 dreams test.
+\set ON_ERROR_STOP on
+begin;
+
+-- A real cross-currency pair for this run only -- the scratch database
+-- this suite runs against has no fx_rates seed data of its own (that
+-- table is refreshed operationally, never migrated), so the test
+-- supplies exactly the one rate it needs rather than assuming one exists.
+-- Inserted as postgres (before the role switch below): fx_rates has no
+-- user-facing INSERT policy, same "system-authored, not user-authored"
+-- shape llama_messages already has -- a normal signed-in user reaches it
+-- only via /api/fx/refresh's service-role client, never a direct write.
+insert into fx_rates (base_currency, quote_currency, rate, as_of, source)
+values ('GBP', 'AUD', 1.9, current_date, '012-test-fixture')
+on conflict (base_currency, quote_currency, as_of) do update set rate = excluded.rate;
+
+set role authenticated;
+select set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+
+-- ---- FX stamping, mirroring the ledger's own pattern -----------------
+do $$
+declare
+  v_id uuid;
+  v_base_minor bigint;
+  v_rate numeric;
+begin
+  insert into someday_items (user_id, title, kind, rough_cost_minor, currency)
+  values ('11111111-1111-1111-1111-111111111111', 'A GBP jacket', 'object', 45000, 'GBP')
+  returning id into v_id;
+
+  select cost_base_minor, cost_fx_rate_applied into v_base_minor, v_rate
+  from someday_items where id = v_id;
+
+  assert v_base_minor is not null and v_rate is not null,
+    'a GBP-priced dream should have its base-currency cost stamped';
+  assert v_rate = 1.9, format('expected the stamped rate to be 1.9, got %s', v_rate);
+  assert v_base_minor = round(45000 * 1.9),
+    format('cost_base_minor should be rough_cost_minor * rate, got %s', v_base_minor);
+
+  -- Editing an unrelated field must not re-stamp.
+  update someday_items set notes = 'a note' where id = v_id;
+  perform 1 from someday_items
+   where id = v_id and cost_base_minor = v_base_minor and cost_fx_rate_applied = v_rate;
+  if not found then
+    raise exception 'editing notes should not have changed the stamped cost/rate';
+  end if;
+
+  -- Changing the amount re-derives cost_base_minor at the *same* rate.
+  update someday_items set rough_cost_minor = 90000 where id = v_id;
+  perform 1 from someday_items
+   where id = v_id and cost_fx_rate_applied = v_rate and cost_base_minor = round(90000 * 1.9);
+  if not found then
+    raise exception 'changing the amount should re-derive cost_base_minor at the same rate';
+  end if;
+
+  -- A currency with no fx_rates coverage degrades gracefully, no exception.
+  -- NZD specifically: 001 smoke test's own fixture seeds GBP/AUD and
+  -- JPY/AUD, so either of those would trivially (and wrongly) pass this
+  -- assertion via real coverage rather than the graceful-degradation path.
+  update someday_items set currency = 'NZD', rough_cost_minor = 500000 where id = v_id;
+  perform 1 from someday_items
+   where id = v_id and cost_base_currency is null and cost_base_minor is null and cost_fx_rate_applied is null;
+  if not found then
+    raise exception 'an uncovered currency should null the stamped columns, not raise';
+  end if;
+
+  -- Clearing the cost clears the stamp.
+  update someday_items set currency = 'GBP', rough_cost_minor = 45000 where id = v_id;
+  update someday_items set rough_cost_minor = null, currency = null where id = v_id;
+  perform 1 from someday_items
+   where id = v_id and cost_base_currency is null and cost_base_minor is null and cost_fx_rate_applied is null;
+  if not found then
+    raise exception 'clearing rough_cost_minor should clear the stamped columns too';
+  end if;
+end $$;
+
+-- ---- v_dream_affordability: capacity collision ------------------------
+do $$
+declare
+  v_id uuid;
+  a record;
+  v_independent numeric;
+begin
+  insert into someday_items (user_id, title, kind, rough_cost_minor, currency)
+  values ('11111111-1111-1111-1111-111111111111', 'A costed dream for capacity', 'object', 45000, 'GBP')
+  returning id into v_id;
+
+  select * into a from v_dream_affordability where dream_id = v_id;
+  assert found, 'the costed dream should appear in v_dream_affordability';
+  assert a.cost_base_currency is not null and a.cost_base_minor is not null,
+    'v_dream_affordability should expose the stamped base-currency cost';
+
+  select app.months_to_afford(a.cost_base_minor, a.monthly_capacity_minor) into v_independent;
+  assert a.months_to_afford is not distinct from v_independent,
+    'months_to_afford should match an independent app.months_to_afford call on the same inputs';
+
+  assert a.spare_capacity_minor = a.monthly_capacity_minor - a.committed_monthly_minor,
+    'spare_capacity_minor should equal monthly_capacity_minor - committed_monthly_minor';
+
+  -- A's fixture (001 smoke test) has no real goal_participants pledge,
+  -- so committed_monthly_minor should be exactly 0 and competing_goal_titles empty
+  -- -- confirmed against the fixture directly, not assumed.
+  assert a.committed_monthly_minor = 0,
+    format('expected no existing pledges for A''s fixture, got %s', a.committed_monthly_minor);
+  assert a.competing_goal_titles = array[]::text[],
+    'competing_goal_titles should be empty when nothing is pledged';
+end $$;
+
+-- Now add a real pledge and confirm committed_monthly_minor/competing_goal_titles react.
+do $$
+declare
+  v_id uuid;
+  a record;
+begin
+  insert into goal_participants (goal_id, user_id, role, monthly_allocation_minor, pledged_currency)
+  values ('bbbbbbbb-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'owner', 20000, 'AUD')
+  on conflict (goal_id, user_id) where removed_at is null
+  do update set monthly_allocation_minor = 20000, pledged_currency = 'AUD';
+
+  insert into someday_items (user_id, title, kind, rough_cost_minor, currency)
+  values ('11111111-1111-1111-1111-111111111111', 'A dream competing with a pledge', 'object', 45000, 'GBP')
+  returning id into v_id;
+
+  select * into a from v_dream_affordability where dream_id = v_id;
+  assert a.committed_monthly_minor = 20000,
+    format('expected committed_monthly_minor = 20000, got %s', a.committed_monthly_minor);
+  assert a.competing_goal_titles is not null and array_length(a.competing_goal_titles, 1) >= 1,
+    'competing_goal_titles should name the goal now consuming capacity';
+end $$;
+
+-- ---- Cross-user leak check on the new columns -------------------------
+select set_config('request.jwt.claim.sub', '22222222-2222-2222-2222-222222222222', false);
+do $$
+declare n int;
+begin
+  select count(*) into n from v_dream_affordability
+   where user_id = '11111111-1111-1111-1111-111111111111';
+  assert n = 0, format('LEAK: B sees %s of A''s rows through the extended v_dream_affordability', n);
+end $$;
+select set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+
+-- ---- promote_dream_to_goal: happy path + both-ways link ----------------
+do $$
+declare
+  v_dream_id uuid;
+  v_goal_id  uuid;
+  g record;
+  d record;
+begin
+  insert into someday_items (user_id, title, notes, kind, rough_cost_minor, currency)
+  values ('11111111-1111-1111-1111-111111111111', 'Promote me', 'a note worth keeping', 'object', 45000, 'GBP')
+  returning id into v_dream_id;
+
+  select app.promote_dream_to_goal(v_dream_id) into v_goal_id;
+  assert v_goal_id is not null, 'promote_dream_to_goal should return a new goal id';
+
+  select * into g from goals where id = v_goal_id;
+  assert g.title = 'Promote me', 'new goal title should match the dream title';
+  assert g.description = 'a note worth keeping', 'new goal description should match the dream notes';
+  assert g.funding = 'save_toward', 'new goal should be save_toward';
+  assert g.currency = 'GBP', 'new goal currency should match the dream''s own currency';
+  assert g.target_amount_minor = 45000, 'new goal target should match the dream''s rough_cost_minor';
+  assert g.promoted_from_dream_id = v_dream_id, 'new goal should link back to the dream';
+
+  select * into d from someday_items where id = v_dream_id;
+  assert d.promoted_goal_id = v_goal_id, 'dream should link forward to the new goal';
+  assert d.goal_promoted_at is not null, 'dream should record when it was promoted to a goal';
+  assert d.promoted_at is null, 'goal-promotion must never touch the separate trip-stop promoted_at column';
+end $$;
+
+-- ---- promote_dream_to_goal: guards --------------------------------------
+do $$
+declare v_id uuid;
+begin
+  -- Already promoted to a goal.
+  begin
+    perform app.promote_dream_to_goal(
+      (select id from someday_items where title = 'Promote me' and user_id = '11111111-1111-1111-1111-111111111111')
+    );
+    assert false, 'promoting an already-promoted dream should be refused';
+  exception when others then null;
+  end;
+
+  -- No price.
+  insert into someday_items (user_id, title, kind)
+  values ('11111111-1111-1111-1111-111111111111', 'No price yet', 'object')
+  returning id into v_id;
+  begin
+    perform app.promote_dream_to_goal(v_id);
+    assert false, 'promoting a dream with no price should be refused';
+  exception when others then null;
+  end;
+
+  -- Already achieved.
+  insert into someday_items (user_id, title, kind, rough_cost_minor, currency, achieved_at)
+  values ('11111111-1111-1111-1111-111111111111', 'Already achieved', 'object', 1000, 'AUD', now())
+  returning id into v_id;
+  begin
+    perform app.promote_dream_to_goal(v_id);
+    assert false, 'promoting an already-achieved dream should be refused';
+  exception when others then null;
+  end;
+
+  -- Archived.
+  insert into someday_items (user_id, title, kind, rough_cost_minor, currency, archived_at)
+  values ('11111111-1111-1111-1111-111111111111', 'Archived dream', 'object', 1000, 'AUD', now())
+  returning id into v_id;
+  begin
+    perform app.promote_dream_to_goal(v_id);
+    assert false, 'promoting an archived dream should be refused';
+  exception when others then null;
+  end;
+end $$;
+
+-- ---- Both promotions can apply -------------------------------------------
+-- A place-kind dream promoted into a trip stop (the pre-existing P6.1
+-- path) *and* into a goal (this package's new path) at the same time --
+-- "do not make them exclusive" (brief, verbatim).
+do $$
+declare
+  v_dream_id uuid;
+  v_goal_id  uuid;
+  d record;
+begin
+  insert into someday_items (user_id, title, kind, rough_cost_minor, currency, place_name, country_code)
+  values ('11111111-1111-1111-1111-111111111111', 'Kyoto (both promotions)', 'place', 90000, 'AUD', 'Kyoto', 'JP')
+  returning id into v_dream_id;
+
+  perform app.promote_someday_to_stop(v_dream_id, 'eeeeeeee-0000-0000-0000-000000000001', 3);
+  select app.promote_dream_to_goal(v_dream_id) into v_goal_id;
+
+  select * into d from someday_items where id = v_dream_id;
+  assert d.promoted_at is not null, 'trip-stop promotion should still be recorded';
+  assert d.promoted_goal_id = v_goal_id, 'goal promotion should also be recorded, independently';
+  assert d.goal_promoted_at is not null, 'goal_promoted_at should be set alongside promoted_at';
+end $$;
+
+rollback;
+select 'DREAM AFFORDABILITY AND PROMOTION VERIFIED' as result;

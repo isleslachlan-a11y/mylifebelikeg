@@ -1,0 +1,173 @@
+-- LOCAL ONLY. Verifies P8.5: weekly dream surfacing built on the
+-- check-in engine (app.surface_dream_for_checkin, check_ins.surfaced_dream_id),
+-- snoozing (app.snooze_dream), and the quarterly prune's own eligibility
+-- view (v_dream_prune_candidates).
+-- Run after 001 smoke test.
+\set ON_ERROR_STOP on
+begin;
+
+set role authenticated;
+select set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+
+-- ---- surface_dream_for_checkin: selection rules -------------------------
+do $$
+declare
+  v_checkin_id uuid;
+  v_dream1 uuid;
+  v_dream2_snoozed uuid;
+  v_dream3_archived uuid;
+  v_dream4_achieved uuid;
+  v_picked uuid;
+  v_stamp_before timestamptz;
+  v_stamp_after timestamptz;
+begin
+  -- A clean slate: archive every real dream this user already has, so
+  -- this test's own fixtures are the only eligible candidates.
+  update someday_items
+     set archived_at = now()
+   where user_id = '11111111-1111-1111-1111-111111111111'
+     and archived_at is null and achieved_at is null;
+
+  v_checkin_id := app.ensure_current_checkin('11111111-1111-1111-1111-111111111111');
+
+  -- No eligible dreams yet.
+  v_picked := app.surface_dream_for_checkin(v_checkin_id);
+  assert v_picked is null, 'no eligible dreams should surface null';
+
+  insert into someday_items (user_id, title, kind)
+  values ('11111111-1111-1111-1111-111111111111', 'The one eligible dream', 'object')
+  returning id into v_dream1;
+
+  insert into someday_items (user_id, title, kind, snoozed_until)
+  values ('11111111-1111-1111-1111-111111111111', 'Snoozed dream', 'object', current_date + 30)
+  returning id into v_dream2_snoozed;
+
+  insert into someday_items (user_id, title, kind, archived_at)
+  values ('11111111-1111-1111-1111-111111111111', 'Archived dream', 'object', now())
+  returning id into v_dream3_archived;
+
+  insert into someday_items (user_id, title, kind, achieved_at)
+  values ('11111111-1111-1111-1111-111111111111', 'Achieved dream', 'object', now())
+  returning id into v_dream4_achieved;
+
+  v_picked := app.surface_dream_for_checkin(v_checkin_id);
+  assert v_picked = v_dream1,
+    format('should pick the one eligible dream, got %s', v_picked);
+
+  perform 1 from someday_items where id = v_dream1 and last_surfaced_at is not null;
+  if not found then
+    raise exception 'last_surfaced_at should be stamped when a dream is surfaced';
+  end if;
+
+  perform 1 from check_ins where id = v_checkin_id and surfaced_dream_id = v_dream1;
+  if not found then
+    raise exception 'check_ins.surfaced_dream_id should record the pick';
+  end if;
+
+  -- Idempotent: same check-in, same dream, no re-stamp.
+  select last_surfaced_at into v_stamp_before from someday_items where id = v_dream1;
+  perform pg_sleep(1);
+  v_picked := app.surface_dream_for_checkin(v_checkin_id);
+  assert v_picked = v_dream1, 'the same check-in should return the same dream again';
+  select last_surfaced_at into v_stamp_after from someday_items where id = v_dream1;
+  assert v_stamp_before = v_stamp_after, 'the idempotent re-call should not re-stamp last_surfaced_at';
+
+  -- A second, separate check-in period still only has one real
+  -- candidate (dream1 -- already surfaced once, but nothing else makes
+  -- snoozed/archived/achieved eligible), so it's picked again.
+  insert into check_ins (user_id, period_start, period_end)
+  values ('11111111-1111-1111-1111-111111111111', current_date - 400, current_date - 394)
+  returning id into v_checkin_id;
+  v_picked := app.surface_dream_for_checkin(v_checkin_id);
+  assert v_picked = v_dream1,
+    'snoozed/archived/achieved dreams must never be picked, even in a fresh period';
+
+  -- An expired snooze makes dream2 eligible again.
+  update someday_items set snoozed_until = current_date - 1 where id = v_dream2_snoozed;
+  insert into check_ins (user_id, period_start, period_end)
+  values ('11111111-1111-1111-1111-111111111111', current_date - 300, current_date - 294)
+  returning id into v_checkin_id;
+  v_picked := app.surface_dream_for_checkin(v_checkin_id);
+  assert v_picked in (v_dream1, v_dream2_snoozed),
+    'an expired-snooze dream should be eligible again';
+end $$;
+
+-- ---- snooze_dream ---------------------------------------------------------
+do $$
+declare
+  v_dream uuid;
+  v_snoozed_until date;
+  v_today date;
+begin
+  insert into someday_items (user_id, title, kind)
+  values ('11111111-1111-1111-1111-111111111111', 'To be snoozed', 'object')
+  returning id into v_dream;
+
+  perform app.snooze_dream(v_dream);
+
+  select snoozed_until into v_snoozed_until from someday_items where id = v_dream;
+  select app.today_for_user('11111111-1111-1111-1111-111111111111') into v_today;
+  assert v_snoozed_until between v_today + 88 and v_today + 95,
+    format('snoozed_until (%s) should be about three months from today (%s)', v_snoozed_until, v_today);
+end $$;
+
+-- Another user cannot snooze this user's dream.
+select set_config('request.jwt.claim.sub', '22222222-2222-2222-2222-222222222222', false);
+do $$
+declare v_dream uuid;
+begin
+  select id into v_dream from someday_items
+   where user_id = '11111111-1111-1111-1111-111111111111' and title = 'To be snoozed';
+  begin
+    perform app.snooze_dream(v_dream);
+    assert false, 'a different user should not be able to snooze this dream';
+  exception when others then null;
+  end;
+end $$;
+select set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+
+-- ---- v_dream_prune_candidates ----------------------------------------------
+do $$
+declare v_old uuid; v_recent uuid; n int;
+begin
+  insert into someday_items (user_id, title, kind, created_at)
+  values ('11111111-1111-1111-1111-111111111111', 'Ancient dream', 'object', now() - interval '400 days')
+  returning id into v_old;
+
+  insert into someday_items (user_id, title, kind, created_at)
+  values ('11111111-1111-1111-1111-111111111111', 'Recent dream', 'object', now())
+  returning id into v_recent;
+
+  perform 1 from v_dream_prune_candidates where dream_id = v_old;
+  if not found then
+    raise exception 'a 400-day-old, never-surfaced dream should be a prune candidate';
+  end if;
+
+  perform 1 from v_dream_prune_candidates where dream_id = v_recent;
+  if found then
+    raise exception 'a freshly-created dream should not be a prune candidate';
+  end if;
+
+  -- "Keep" (keepDream in the app -- a plain last_surfaced_at stamp)
+  -- removes a dream from the next prune cycle, the same shared signal
+  -- surface_dream_for_checkin's own gap-preference reads.
+  update someday_items set last_surfaced_at = now() where id = v_old;
+  perform 1 from v_dream_prune_candidates where dream_id = v_old;
+  if found then
+    raise exception '"keeping" a dream (stamping last_surfaced_at) should remove it from the prune batch';
+  end if;
+end $$;
+
+-- Cross-user leak check.
+select set_config('request.jwt.claim.sub', '22222222-2222-2222-2222-222222222222', false);
+do $$
+declare n int;
+begin
+  select count(*) into n from v_dream_prune_candidates
+   where user_id = '11111111-1111-1111-1111-111111111111';
+  assert n = 0, format('LEAK: B sees %s of A''s prune candidates', n);
+end $$;
+
+reset role;
+rollback;
+select 'DREAM RESURFACING AND PRUNING VERIFIED' as result;

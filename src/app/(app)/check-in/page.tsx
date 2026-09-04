@@ -1,5 +1,8 @@
 import { redirect } from "next/navigation";
 
+import { surfaceDreamForCheckin } from "@/app/(app)/dreams/actions";
+import { deriveThumbPath } from "@/lib/storage/dream-photos";
+import { getSignedDreamPhotoUrl } from "@/lib/storage/dream-photos-server";
 import {
   computeScheduleVariance,
   formatScheduleVariance,
@@ -8,6 +11,7 @@ import { createClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
 import { CheckInView } from "./check-in-view";
 import type { CheckInGoal } from "./goal-rating-card";
+import type { SurfacedDream } from "./dream-prompt";
 
 /**
  * The weekly check-in (P4.1). On open, get-or-create this period's
@@ -45,33 +49,43 @@ export default async function CheckInPage() {
   }
 
   const [
-    { data: checkIn, error: checkInError },
-    { data: streakRow },
-    { data: goals, error: goalsError },
-    { data: ratings, error: ratingsError },
+    [
+      { data: checkIn, error: checkInError },
+      { data: streakRow },
+      { data: goals, error: goalsError },
+      { data: ratings, error: ratingsError },
+    ],
+    surfacedDreamResult,
   ] = await Promise.all([
-    supabase.from("check_ins").select("*").eq("id", checkInId).single(),
-    supabase
-      .from("v_checkin_streak")
-      .select("streak")
-      .eq("user_id", userId)
-      .maybeSingle(),
-    // Active goals the viewer participates in — goals_select's RLS
-    // (owner OR active goal_participants row) is exactly "am I a
-    // participant on this goal" (P4.1 brief: "rate only goals where the
-    // user is a participant"), so no extra owner_id filter goes on top —
-    // same reasoning goals/page.tsx's shared-goals query documents.
-    supabase
-      .from("goals")
-      .select("id, title, created_at, start_date, target_date")
-      .eq("state", "active")
-      .is("deleted_at", null)
-      .order("target_date", { ascending: true, nullsFirst: false }),
-    supabase
-      .from("goal_ratings")
-      .select("goal_id, score, note")
-      .eq("check_in_id", checkInId)
-      .eq("user_id", userId),
+    Promise.all([
+      supabase.from("check_ins").select("*").eq("id", checkInId).single(),
+      supabase
+        .from("v_checkin_streak")
+        .select("streak")
+        .eq("user_id", userId)
+        .maybeSingle(),
+      // Active goals the viewer participates in — goals_select's RLS
+      // (owner OR active goal_participants row) is exactly "am I a
+      // participant on this goal" (P4.1 brief: "rate only goals where the
+      // user is a participant"), so no extra owner_id filter goes on top —
+      // same reasoning goals/page.tsx's shared-goals query documents.
+      supabase
+        .from("goals")
+        .select("id, title, created_at, start_date, target_date")
+        .eq("state", "active")
+        .is("deleted_at", null)
+        .order("target_date", { ascending: true, nullsFirst: false }),
+      supabase
+        .from("goal_ratings")
+        .select("goal_id, score, note")
+        .eq("check_in_id", checkInId)
+        .eq("user_id", userId),
+    ]),
+    // P8.5: "weekly, as part of the check-in, one dream surfaced" —
+    // fetched alongside everything else above rather than after it, so
+    // this doesn't add its own extra round trip's worth of latency to
+    // the page.
+    surfaceDreamForCheckin(checkInId),
   ]);
 
   if (checkInError || !checkIn) {
@@ -133,6 +147,44 @@ export default async function CheckInPage() {
     };
   });
 
+  // The surfaced dream's own photo -- resolved server-side, same
+  // "signed once, handed down as a plain prop" shape dreams/page.tsx's
+  // own grid thumbnails already use, rather than a client-side fetch.
+  //
+  // P8.7: a failed `surfaceDreamForCheckin` degrades to "no dream
+  // surfaced" rather than failing the whole check-in page -- the prompt
+  // is a bonus on top of the check-in's real purpose (rating goals), not
+  // core to it. Logged rather than silently dropped either way, matching
+  // this app's standing "log failures, don't swallow them invisibly"
+  // rule -- found live with nothing here to catch a real RPC/query
+  // failure and leave a trace of it.
+  if (!surfacedDreamResult.ok) {
+    console.error(
+      "surfaceDreamForCheckin failed",
+      surfacedDreamResult.error,
+    );
+  }
+  let surfacedDream: SurfacedDream | null = null;
+  if (surfacedDreamResult.ok && surfacedDreamResult.data) {
+    const dream = surfacedDreamResult.data;
+    let photoUrl: string | null = null;
+    if (dream.image_source === "upload" && dream.storage_path) {
+      photoUrl = await getSignedDreamPhotoUrl(
+        supabase,
+        deriveThumbPath(dream.storage_path),
+      );
+    } else if (dream.unsplash_thumb_url) {
+      photoUrl = dream.unsplash_thumb_url;
+    }
+    surfacedDream = {
+      id: dream.id,
+      title: dream.title,
+      roughCostMinor: dream.rough_cost_minor,
+      currency: dream.currency,
+      photoUrl,
+    };
+  }
+
   return (
     <CheckInView
       checkInId={checkInId}
@@ -142,6 +194,7 @@ export default async function CheckInPage() {
       initialCapacityRating={checkIn.capacity_rating}
       initialOverallNote={checkIn.note ?? ""}
       initiallySubmitted={checkIn.submitted_at != null}
+      surfacedDream={surfacedDream}
     />
   );
 }

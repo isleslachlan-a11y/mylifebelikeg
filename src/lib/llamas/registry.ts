@@ -63,6 +63,19 @@ export const TRIGGER_REGISTRY: Record<TriggerCode, RegistryEntry> = {
   // system" — same tier as goal_completed/trip_completed, never buried
   // under incidental noise.
   achievement_unlocked: { speaker: "fluffy", priority: 1 },
+  // P8.4: "the moment matters" — same tier as goal_completed/
+  // trip_completed/achievement_unlocked, a real completion, not incidental.
+  dream_achieved: { speaker: "fluffy", priority: 1 },
+  // P8.5: Derek's territory (letting go, pruning) vs. Fluffy's
+  // counterweight (the achieved recap) — same speaker split the rest of
+  // this registry already draws. Priority 2 for both Derek triggers: a
+  // real thing worth seeing, not urgent the way task_overdue/
+  // budget_exceeded are. The recap is priority 3, incidental, same tier
+  // as checkin_streak/goal_improved — good news, not news that needs
+  // acting on.
+  dream_let_go: { speaker: "derek", priority: 2 },
+  dream_prune_available: { speaker: "derek", priority: 2 },
+  dreams_achieved_recap: { speaker: "fluffy", priority: 3 },
 };
 
 export function getSpeaker(trigger: TriggerCode): LlamaSpeaker {

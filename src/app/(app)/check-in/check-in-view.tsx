@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import type { NewlyUnlockedAchievement } from "@/lib/achievements/types";
 import { saveCapacityRating, saveOverallNote, submitCheckIn } from "./actions";
+import { DreamPrompt, type SurfacedDream } from "./dream-prompt";
 import { formatCheckInPeriod } from "./format-period";
 import { GoalRatingCard, type CheckInGoal } from "./goal-rating-card";
 import { RatingScale } from "./rating-scale";
@@ -23,6 +24,7 @@ export type CheckInViewProps = {
   initialCapacityRating: number | null;
   initialOverallNote: string;
   initiallySubmitted: boolean;
+  surfacedDream: SurfacedDream | null;
 };
 
 type Step =
@@ -49,6 +51,7 @@ export function CheckInView({
   initialCapacityRating,
   initialOverallNote,
   initiallySubmitted,
+  surfacedDream,
 }: CheckInViewProps) {
   const isMobile = useIsMobile();
 
@@ -167,6 +170,7 @@ export function CheckInView({
       <div className="mx-auto flex min-h-dvh max-w-md flex-col gap-6 p-6">
         <AchievementCelebration unlocked={unlocked} />
         {header}
+        <DreamPrompt dream={surfacedDream} />
         <div className="flex-1">
           {step.kind === "goal" && (
             <GoalRatingCard checkInId={checkInId} goal={step.goal} />
@@ -205,6 +209,7 @@ export function CheckInView({
     <div className="mx-auto flex max-w-2xl flex-col gap-8 p-6">
       <AchievementCelebration unlocked={unlocked} />
       {header}
+      <DreamPrompt dream={surfacedDream} />
       {goals.length > 0 ? (
         <div className="flex flex-col gap-4">
           {goals.map((goal) => (

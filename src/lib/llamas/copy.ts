@@ -134,6 +134,27 @@ export const COPY_VARIANTS: { [K in TriggerCode]: CopyFn<K>[] } = {
     ({ goalTitle }) =>
       `You've put a number on ${goalTitle}. From here I can tell you if it's working, not just guess.`,
   ],
+  // P8.5 brief, verbatim: "wanting something and then not wanting it is
+  // not a failure, and the copy should not imply it is." Read aloud
+  // against that line specifically, not just Derek's usual two-sentence
+  // brief — none of these frame the dream, or the person, as having
+  // failed at anything.
+  dream_let_go: [
+    ({ dreamTitle }) =>
+      `${dreamTitle}, off the list. Wanting something and then not wanting it isn't a failure — it's just where you are now.`,
+    ({ dreamTitle }) =>
+      `Archived: ${dreamTitle}. People change their minds. That's the whole point of a list you can edit.`,
+    ({ dreamTitle }) =>
+      `${dreamTitle} is gone from the list. Not every dream sticks, and that's fine — the ones that do matter more for it.`,
+  ],
+  dream_prune_available: [
+    ({ count }) =>
+      `${count} dream${count === 1 ? "" : "s"} you haven't touched in a year. Worth a look — some of them might not be dreams anymore.`,
+    ({ count }) =>
+      `${count} thing${count === 1 ? "" : "s"} on your list, sitting still for a year or more. Keep them or let them go — either's fine, just decide.`,
+    ({ count }) =>
+      `You've got ${count} dream${count === 1 ? "" : "s"} that haven't moved in a year. A look, not a judgement.`,
+  ],
   // ---- Fluffy: warm, enthusiastic, encouraging without being
   // saccharine. Never minimises a genuine setback. ----
   goal_green: [
@@ -237,6 +258,30 @@ export const COPY_VARIANTS: { [K in TriggerCode]: CopyFn<K>[] } = {
       `You just earned ${achievementName}. There's something new waiting on your avatar.`,
     ({ achievementName }) =>
       `${achievementName}: yours now! Something new just showed up in the avatar editor.`,
+  ],
+  // P8.4: the moment a dream stops being a dream. Doesn't mention
+  // promotion, capacity, or any of Derek's territory — this is purely
+  // "you have it now," the warm half of the pairing the brief itself
+  // draws ("the honest half of what makes Fluffy's celebrations mean
+  // anything" is Derek's line, this is the celebration it's talking about).
+  dream_achieved: [
+    ({ dreamTitle }) =>
+      `${dreamTitle} — you actually got it. That's what the whole list is for!`,
+    ({ dreamTitle }) =>
+      `${dreamTitle}: from someday to done. Look at that!`,
+    ({ dreamTitle }) =>
+      `You did it — ${dreamTitle} isn't a dream anymore, it's just yours now.`,
+  ],
+  // P8.5 brief, verbatim: "Fluffy's counterweight, so the feature is not
+  // only subtraction." Two numbers, always both — this month's count
+  // and the running lifetime total — never just one on its own.
+  dreams_achieved_recap: [
+    ({ count, totalValueMinor, currency }) =>
+      `${count} dream${count === 1 ? "" : "s"} achieved this month. ${formatMoney(totalValueMinor, currency)} worth of dreams checked off since you started — that adds up!`,
+    ({ count, totalValueMinor, currency }) =>
+      `This month: ${count} dream${count === 1 ? "" : "s"} achieved. All up, that's ${formatMoney(totalValueMinor, currency)} of "I actually did that."`,
+    ({ count, totalValueMinor, currency }) =>
+      `${count} more dream${count === 1 ? "" : "s"} off the list this month — ${formatMoney(totalValueMinor, currency)} in dreams achieved so far. Keep going!`,
   ],
 };
 

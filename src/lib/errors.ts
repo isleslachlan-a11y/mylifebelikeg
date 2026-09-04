@@ -71,6 +71,18 @@ const CONSTRAINT_MESSAGES: Record<string, string> = {
   someday_items_title_check: "Title can't be empty.",
   unsplash_needs_attribution:
     "That photo is missing attribution — try picking it again.",
+  // P8.1, confirmed against the live schema (migration 0032 and 0031's
+  // own constraints, applied directly). None of these should ever
+  // actually trigger through the normal <ImageUpload>/<SomedayFormDialog>
+  // flow -- same "the mapping should exist even if nothing should ever
+  // trigger it" reasoning P7.1's avatar editor already established for
+  // app.validate_avatar()'s errors.
+  dream_image_source_consistent:
+    "Something went wrong with that photo — try uploading it again.",
+  achieved_photo_needs_achieved_at:
+    "Mark the dream as achieved before adding a photo of it.",
+  achieved_xor_archived:
+    "A dream can't be both achieved and archived.",
   // P6.3, confirmed against the live schema (same `supabase db dump`
   // technique as P6.1's entries above).
   trips_origin_lat_check: "Latitude must be between -90 and 90.",
@@ -163,6 +175,19 @@ const AVATAR_INVALID_PRESET_RE =
 // pre-written politely.
 const PIN_LIMIT_RE = /can pin at most three achievements/i;
 
+// P8.3: app.promote_dream_to_goal's own four guards (migration 0033),
+// none of them named constraints -- same "raised exception, not
+// CONSTRAINT_NAME_RE-matchable" situation as every entry above. The
+// dialog also disables/hides the "Promote to goal" action for each of
+// these cases client-side (no price, already promoted, achieved,
+// archived), so these are defense in depth for a stale client or a
+// direct RPC call, same reasoning P7.1's avatar-lock mappings give for
+// their own already-client-prevented cases.
+const DREAM_NEEDS_PRICE_RE = /needs a price before it can become a goal/i;
+const DREAM_ALREADY_PROMOTED_RE = /already been promoted to a goal/i;
+const DREAM_ALREADY_ACHIEVED_RE = /dream has already been achieved/i;
+const DREAM_ARCHIVED_RE = /this dream is archived/i;
+
 /** Map a Postgres/PostgREST error to a user-facing sentence. Logs the original for unmatched cases. */
 export function humanizeDbError(
   error: Pick<PostgrestError, "message" | "details">,
@@ -190,6 +215,18 @@ export function humanizeDbError(
   }
   if (PIN_LIMIT_RE.test(error.message)) {
     return "You can only pin three achievements — unpin one first.";
+  }
+  if (DREAM_NEEDS_PRICE_RE.test(error.message)) {
+    return "Add a price before promoting this dream to a goal.";
+  }
+  if (DREAM_ALREADY_PROMOTED_RE.test(error.message)) {
+    return "This dream is already linked to a goal.";
+  }
+  if (DREAM_ALREADY_ACHIEVED_RE.test(error.message)) {
+    return "This dream is already achieved — nothing left to save toward.";
+  }
+  if (DREAM_ARCHIVED_RE.test(error.message)) {
+    return "Unarchive this dream before promoting it to a goal.";
   }
 
   console.error(

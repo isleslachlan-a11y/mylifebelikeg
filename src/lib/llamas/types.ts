@@ -35,7 +35,11 @@ export type TriggerCode =
   | "stop_unbooked_soon"
   | "first_trip"
   | "first_budget_set"
-  | "achievement_unlocked";
+  | "achievement_unlocked"
+  | "dream_achieved"
+  | "dream_let_go"
+  | "dream_prune_available"
+  | "dreams_achieved_recap";
 
 /** Typed parameters each trigger's copy templates need. */
 export type TriggerParams = {
@@ -160,6 +164,53 @@ export type TriggerParams = {
    * word for word.
    */
   achievement_unlocked: { achievementName: string };
+  /**
+   * P8.4: "the moment matters. Fluffy delivers it" (brief, verbatim) --
+   * fired inline, exactly once, from `dreams/actions.ts`'s
+   * `achieveDream`, the same "real event, not polled for" shape every
+   * other one-off completion trigger here uses (`goal_completed`,
+   * `bucket_list_milestone`). Distinct from `achievement_unlocked`,
+   * which may or may not *also* fire alongside this in the same action
+   * (whether achieving a dream happens to be someone's first or tenth) —
+   * two independent messages for two independent facts, not one
+   * conflated into the other, same relationship `goal_completed` already
+   * has with its own achievement-evaluation call.
+   */
+  dream_achieved: { dreamTitle: string };
+  /**
+   * P8.5: "Let it go — archive, with Derek being decent about it.
+   * Wanting something and then not wanting it is not a failure, and the
+   * copy should not imply it is" (brief, verbatim). Fired inline from
+   * `dreams/actions.ts`'s `letGoDream` -- the weekly prompt's own
+   * "Let it go" response, not the quarterly prune's batch archive
+   * (which stays quiet per-item, same "a batch operation doesn't need N
+   * individual notifications" reasoning P8.4's own un-achieve already
+   * established for a different quiet action).
+   */
+  dream_let_go: { dreamTitle: string };
+  /**
+   * P8.5: "a quarterly prune... offered as a batch to keep or archive"
+   * -- this is the notice pointing at that batch, not the batch UI
+   * itself. `count` is how many dreams currently qualify
+   * (`v_dream_prune_candidates`), evaluated debounced on dashboard
+   * load/check-in, same delivery surface every other trigger here uses.
+   */
+  dream_prune_available: { count: number };
+  /**
+   * P8.5: "Fluffy's counterweight, so the feature is not only
+   * subtraction: a monthly note on what was achieved in the period, and
+   * the total value of dreams achieved to date" (brief, verbatim) --
+   * two different numbers, deliberately: `count` is this calendar
+   * month's own achievements, `totalValueMinor`/`currency` is the
+   * running lifetime total (base currency, via the stamped
+   * `cost_base_minor` P8.3 already established) -- not the same figure
+   * twice.
+   */
+  dreams_achieved_recap: {
+    count: number;
+    totalValueMinor: number;
+    currency: string;
+  };
 };
 
 /** Display metadata for the two speakers — not database-derived, just copy. */

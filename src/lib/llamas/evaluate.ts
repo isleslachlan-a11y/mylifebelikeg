@@ -803,6 +803,140 @@ async function evaluateStopUnbookedSoon(
   }
 }
 
+// "Quarterly" as a report-throttle window, not a literal calendar
+// quarter boundary — 85 days comfortably avoids re-firing before the
+// next one genuinely arrives without needing to track calendar-quarter
+// edges the way the monthly recap below tracks calendar months.
+const DREAM_PRUNE_REPORT_WINDOW_DAYS = 85;
+
+/**
+ * dream_prune_available (P8.5) — "a quarterly prune... dreams untouched
+ * for over a year, offered as a batch." `v_dream_prune_candidates`
+ * (0035) already is the eligibility rule; this only decides *whether to
+ * say so*, throttled to roughly once a quarter via `hasReportedSince`
+ * rather than `hasUndismissedMessage` — the underlying condition (some
+ * dream sitting untouched) stays true continuously, exactly the "level"
+ * shape hasUndismissedMessage is for, but re-firing the instant a
+ * dismissed notice's condition is still true would mean "dismiss today,
+ * see it again tomorrow," wrong for a genuinely quarterly cadence. A
+ * fresh count each time (not cached from the last report) — if the
+ * batch was partly cleared last quarter, this reports what's actually
+ * still there now, not a stale number.
+ */
+async function evaluateDreamPruneAvailable(
+  supabase: SupabaseServerClient,
+  userId: string,
+): Promise<void> {
+  const candidates = logged(
+    await supabase
+      .from("v_dream_prune_candidates")
+      .select("dream_id")
+      .eq("user_id", userId),
+    "evaluateDreamPruneAvailable: candidates",
+  );
+  const count = candidates?.length ?? 0;
+  if (count === 0) return;
+
+  const since = new Date(
+    Date.now() - DREAM_PRUNE_REPORT_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+  ).toISOString();
+  if (
+    await hasReportedSince(
+      supabase,
+      userId,
+      ["dream_prune_available"],
+      "profile",
+      userId,
+      since,
+    )
+  ) {
+    return;
+  }
+
+  await emitLlamaMessage(
+    userId,
+    "dream_prune_available",
+    { count },
+    { type: "profile", id: userId },
+  );
+}
+
+/**
+ * dreams_achieved_recap (P8.5) — "Fluffy's counterweight... a monthly
+ * note on what was achieved in the period, and the total value of
+ * dreams achieved to date." Two independent numbers: `thisMonthCount`
+ * gates whether anything's worth saying at all (no achievements this
+ * month, no recap — Fluffy doesn't send an empty one), `totalValueMinor`
+ * is the lifetime sum regardless of when each dream was achieved, via
+ * the same stamped `cost_base_minor` P8.3 already established (an
+ * unpriced achieved dream contributes nothing to the total, not an
+ * error). `achieved_at`'s own calendar day is read from its UTC ISO
+ * string directly rather than converted through the user's timezone —
+ * for a monthly cadence a same-day boundary case is a genuinely trivial
+ * imprecision, not worth a full timezone conversion here.
+ * `hasReportedSince` throttles to once per calendar month, using the
+ * user-local month boundary (`today`, already timezone-resolved by the
+ * caller) as the cutoff.
+ */
+async function evaluateDreamsAchievedRecap(
+  supabase: SupabaseServerClient,
+  userId: string,
+  today: string,
+): Promise<void> {
+  const monthStart = `${today.slice(0, 7)}-01`;
+
+  const achieved = logged(
+    await supabase
+      .from("someday_items")
+      .select("achieved_at, cost_base_minor")
+      .eq("user_id", userId)
+      .is("deleted_at", null)
+      .not("achieved_at", "is", null),
+    "evaluateDreamsAchievedRecap: achieved",
+  );
+  if (!achieved || achieved.length === 0) return;
+
+  const thisMonthCount = achieved.filter(
+    (d) => d.achieved_at != null && d.achieved_at.slice(0, 10) >= monthStart,
+  ).length;
+  if (thisMonthCount === 0) return;
+
+  const totalValueMinor = achieved.reduce(
+    (sum, d) => sum + (d.cost_base_minor ?? 0),
+    0,
+  );
+
+  const profile = logged(
+    await supabase
+      .from("profiles")
+      .select("base_currency")
+      .eq("id", userId)
+      .maybeSingle(),
+    "evaluateDreamsAchievedRecap: profile",
+  );
+  const currency = profile?.base_currency ?? "AUD";
+
+  if (
+    await hasReportedSince(
+      supabase,
+      userId,
+      ["dreams_achieved_recap"],
+      "profile",
+      userId,
+      `${monthStart}T00:00:00.000Z`,
+    )
+  ) {
+    return;
+  }
+
+  await emitLlamaMessage(
+    userId,
+    "dreams_achieved_recap",
+    { count: thisMonthCount, totalValueMinor, currency },
+    { type: "profile", id: userId },
+  );
+}
+
 /**
  * Runs every wired trigger for one user (P4.6). Debounced to at most
  * once an hour per user (brief, verbatim) via `profiles.llama_evaluated_at`
@@ -872,5 +1006,7 @@ export async function evaluateLlamaTriggers(
     evaluateTripBooked(supabase, userId),
     evaluateTripOverBudget(supabase, userId),
     evaluateStopUnbookedSoon(supabase, userId, today),
+    evaluateDreamPruneAvailable(supabase, userId),
+    evaluateDreamsAchievedRecap(supabase, userId, today),
   ]);
 }

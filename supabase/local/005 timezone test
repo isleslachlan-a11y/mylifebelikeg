@@ -1,7 +1,18 @@
 -- LOCAL ONLY. Verifies RAG date arithmetic follows the goal owner's timezone.
--- Deterministic by construction: Pacific/Kiritimati (UTC+14) and Pacific/Midway
--- (UTC-11) are 25 hours apart, so they are ALWAYS on different calendar dates
--- regardless of when this test runs.
+-- Pacific/Kiritimati (UTC+14) and Pacific/Midway (UTC-11) are 25 hours
+-- apart, which guarantees a date difference at every instant -- but not
+-- always the *same* one. 25 hours is 1 day plus 1 spare hour: east's
+-- local calendar rolls over at 10:00 UTC, west's at 11:00 UTC, so during
+-- that specific one-hour UTC window each day, east has already reached
+-- tomorrow while west hasn't yet reached today -- a 2-day gap, not 1.
+-- Confirmed live, not assumed: running this suite at 2026-09-03 10:20
+-- UTC (squarely inside that window) actually produced 2026-09-04 vs
+-- 2026-09-02, and the original "always exactly one day apart" assertion
+-- here was simply wrong for that hour -- a real, if narrow, source of
+-- flakiness this fixture pair could hit for anyone running the suite at
+-- the wrong time, not a P8.4 regression. Fixed by asserting the range
+-- this pair's 25-hour offset actually guarantees (1 or 2 days, never 0,
+-- never anything else) rather than a single value it doesn't.
 \set ON_ERROR_STOP on
 begin;
 
@@ -13,7 +24,6 @@ insert into profiles (id, handle, display_name, timezone) values
   ('33333333-3333-3333-3333-333333333333', 'east_user', 'East', 'Pacific/Kiritimati'),
   ('44444444-4444-4444-4444-444444444444', 'west_user', 'West', 'Pacific/Midway');
 
--- The 25-hour spread guarantees a date difference at every instant.
 do $$
 declare d_east date; d_west date;
 begin
@@ -21,8 +31,8 @@ begin
   d_west := app.today_for_user('44444444-4444-4444-4444-444444444444');
   assert d_east > d_west,
     format('expected east ahead of west, got % vs %', d_east, d_west);
-  assert d_east - d_west = 1,
-    format('expected exactly one day apart, got %s', d_east - d_west);
+  assert d_east - d_west in (1, 2),
+    format('expected one or two days apart (25-hour offset, calendar-boundary dependent), got %s', d_east - d_west);
 end $$;
 
 -- An unrecognised timezone must fall back, not raise.
@@ -66,7 +76,9 @@ begin
   select * into e from app.compute_goal_rag('ffffffff-0000-0000-0000-000000000001');
   select * into w from app.compute_goal_rag('ffffffff-0000-0000-0000-000000000002');
 
-  assert (e.inputs->>'today')::date - (w.inputs->>'today')::date = 1,
+  -- Same 1-or-2 relationship as the assertion above, for the same
+  -- reason (this pair's 25-hour offset) -- see this file's own header.
+  assert (e.inputs->>'today')::date - (w.inputs->>'today')::date in (1, 2),
     'RAG did not use the owner-local date';
 
   -- Same tasks, same dates, one extra elapsed day for the eastern owner.

@@ -1,7 +1,7 @@
 import {
+  BookImage,
   CircleUser,
   ClipboardCheck,
-  Compass,
   GanttChart,
   History,
   LayoutDashboard,
@@ -24,9 +24,10 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/timeline", label: "Timeline", icon: GanttChart },
   { href: "/goals", label: "Goals", icon: Target },
-  // P6.1: the bucket list — sits beside Trips (someday items promote
-  // into a trip's stops) rather than in the "looking back" group below.
-  { href: "/someday", label: "Someday", icon: Compass },
+  // P6.1: the bucket list, rebuilt as the Dream Diary in P8.2 — sits
+  // beside Trips (dreams promote into a trip's stops) rather than in the
+  // "looking back" group below.
+  { href: "/dreams", label: "Dreams", icon: BookImage },
   { href: "/trips", label: "Trips", icon: Plane },
   // P6.4: dreams and trip stops together on one map — sits right after
   // the two pages it draws from.

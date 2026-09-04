@@ -40,11 +40,26 @@ async function celebrate(
   // why this is a bodyOverride rather than routed through getLlamaCopy.
   // Falls back to the generic copy for any achievement that doesn't
   // have one yet (defensive — every seeded achievement does, as of 0029).
+  //
+  // No `resource` here (found live, P8.6 verification): `app.evaluate_
+  // achievements` only ever returns `code`/`name` (its own doc comment:
+  // "the return value is exactly what to celebrate"), and `code` is a
+  // text slug like "new_star" -- never a valid uuid, which is what
+  // `llama_messages.resource_id` actually is. Passing it as one silently
+  // failed every `achievement_unlocked` insert (a Postgres uuid-syntax
+  // error, caught by this function's own log-don't-throw try, so the
+  // grant itself always still succeeded -- only the inbox message never
+  // landed). resource_type/resource_id are write-only right now anyway
+  // (grep confirms neither is read by any UI component, only by
+  // evaluate.ts's own dedupe helpers, which this always-run-once,
+  // naturally-idempotent trigger never uses) -- omitting them here is
+  // honest about that rather than resolving a fake link to satisfy a
+  // column nothing reads yet.
   await emitLlamaMessage(
     userId,
     "achievement_unlocked",
     { achievementName: name },
-    { type: "achievement", id: code },
+    undefined,
     ACHIEVEMENT_UNLOCK_LINES[code],
   );
 

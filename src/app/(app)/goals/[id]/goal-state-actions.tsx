@@ -15,7 +15,8 @@ import {
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import type { NewlyUnlockedAchievement } from "@/lib/achievements/types";
-import { transitionGoalState } from "../actions";
+import { achieveDream } from "@/app/(app)/dreams/actions";
+import { transitionGoalState, type OfferableAchieveDream } from "../actions";
 import {
   ALLOWED_GOAL_TRANSITIONS,
   transitionLabel,
@@ -34,11 +35,17 @@ export function GoalStateActions({
   const [abandonOpen, setAbandonOpen] = useState(false);
   const [abandonReason, setAbandonReason] = useState("");
   const [unlocked, setUnlocked] = useState<NewlyUnlockedAchievement[]>([]);
+  // P8.4: "offer to mark the dream achieved rather than doing it
+  // silently; the user may disagree about what counted" (brief,
+  // verbatim) — populated only from this call's own result, same
+  // "shown once, right where the user's action earned it" shape
+  // `unlocked` above already has. Accepting or dismissing one just
+  // removes it from this list; there's no persisted "still pending"
+  // state to reconcile if the user navigates away without answering.
+  const [offerDreams, setOfferDreams] = useState<OfferableAchieveDream[]>([]);
+  const [achievingDreamId, setAchievingDreamId] = useState<string | null>(null);
 
   const targets = ALLOWED_GOAL_TRANSITIONS[state];
-  if (targets.length === 0) {
-    return null;
-  }
 
   function runTransition(target: GoalState, reason?: string) {
     setError(null);
@@ -59,7 +66,33 @@ export function GoalStateActions({
       if (result.data.unlockedAchievements.length > 0) {
         setUnlocked(result.data.unlockedAchievements);
       }
+      if (result.data.offerAchieveDreams.length > 0) {
+        setOfferDreams(result.data.offerAchieveDreams);
+      }
     });
+  }
+
+  function handleAcceptOffer(dream: OfferableAchieveDream) {
+    setAchievingDreamId(dream.id);
+    startTransition(async () => {
+      const result = await achieveDream(dream.id, {
+        note: null,
+        achievedStoragePath: null,
+      });
+      setAchievingDreamId(null);
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      setOfferDreams((prev) => prev.filter((d) => d.id !== dream.id));
+      if (result.data.unlockedAchievements.length > 0) {
+        setUnlocked((prev) => [...prev, ...result.data.unlockedAchievements]);
+      }
+    });
+  }
+
+  if (targets.length === 0 && offerDreams.length === 0) {
+    return null;
   }
 
   function handleAbandonConfirm() {
@@ -78,6 +111,44 @@ export function GoalStateActions({
           {error}
         </p>
       )}
+
+      {offerDreams.map((dream) => (
+        <div
+          key={dream.id}
+          className="border-star/30 bg-star/5 flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3"
+        >
+          <p className="text-sm">
+            Was &ldquo;{dream.title}&rdquo; part of this? You can mark it
+            achieved too.
+          </p>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="max-md:h-11"
+              disabled={achievingDreamId === dream.id}
+              onClick={() =>
+                setOfferDreams((prev) => prev.filter((d) => d.id !== dream.id))
+              }
+            >
+              Not this one
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="max-md:h-11"
+              disabled={achievingDreamId === dream.id}
+              onClick={() => handleAcceptOffer(dream)}
+            >
+              {achievingDreamId === dream.id
+                ? "Marking achieved…"
+                : "Mark achieved"}
+            </Button>
+          </div>
+        </div>
+      ))}
 
       <div className="flex flex-wrap gap-2">
         {targets.map((target) => (

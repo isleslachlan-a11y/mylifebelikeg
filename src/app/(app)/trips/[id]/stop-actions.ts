@@ -279,6 +279,6 @@ export async function promoteFromSomeday(
   }
 
   revalidatePath(RESULT_PATH(tripId));
-  revalidatePath("/someday");
+  revalidatePath("/dreams");
   return { ok: true, data: await fetchTripState(supabase, tripId) };
 }

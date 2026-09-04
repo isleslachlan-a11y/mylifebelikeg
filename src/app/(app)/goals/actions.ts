@@ -187,17 +187,91 @@ export async function updateGoal(
  * state) — this function is the actual gate, not a UI nicety layered on
  * top of one.
  */
+/** One dream this completion could reasonably mean was achieved — see `findOfferableAchieveDreams` below. */
+export type OfferableAchieveDream = { id: string; title: string };
+
+/**
+ * "Achieved is not promoted... when a linked goal or trip completes,
+ * offer to mark the dream achieved rather than doing it silently; the
+ * user may disagree about what counted" (P8.3/P8.4 briefs). Two
+ * independent link shapes, both checked: a dream promoted *directly* to
+ * this goal (`someday_items.promoted_goal_id`, P8.3), and — for a
+ * trip-kind goal specifically — every place-kind dream promoted into
+ * one of *this trip's* stops (`trip_stops.someday_item_id`, the P6.1
+ * path). "The trip completes" is read here as the trip's own goal
+ * reaching `state = 'completed'`, not any individual stop's
+ * `booking_state` — a trip is a goal with `kind = 'trip'` (CLAUDE.md),
+ * so both cases really are "a goal completes," just two different ways
+ * a dream can be linked to the goal that just did. Already-achieved
+ * dreams are excluded — nothing to offer for those.
+ */
+async function findOfferableAchieveDreams(
+  supabase: SupabaseServerClient,
+  goal: { id: string; kind: string; promoted_from_dream_id: string | null },
+): Promise<OfferableAchieveDream[]> {
+  const dreamIds = new Set<string>();
+  if (goal.promoted_from_dream_id) {
+    dreamIds.add(goal.promoted_from_dream_id);
+  }
+
+  if (goal.kind === "trip") {
+    const { data: trip, error: tripError } = await supabase
+      .from("trips")
+      .select("id")
+      .eq("goal_id", goal.id)
+      .maybeSingle();
+    if (tripError) {
+      console.error("findOfferableAchieveDreams: trip lookup failed", tripError);
+    } else if (trip) {
+      const { data: stops, error: stopsError } = await supabase
+        .from("trip_stops")
+        .select("someday_item_id")
+        .eq("trip_id", trip.id)
+        .not("someday_item_id", "is", null);
+      if (stopsError) {
+        console.error(
+          "findOfferableAchieveDreams: trip stops lookup failed",
+          stopsError,
+        );
+      } else {
+        for (const stop of stops ?? []) {
+          if (stop.someday_item_id) dreamIds.add(stop.someday_item_id);
+        }
+      }
+    }
+  }
+
+  if (dreamIds.size === 0) return [];
+
+  const { data: dreams, error: dreamsError } = await supabase
+    .from("someday_items")
+    .select("id, title")
+    .in("id", [...dreamIds])
+    .is("deleted_at", null)
+    .is("achieved_at", null);
+  if (dreamsError) {
+    console.error("findOfferableAchieveDreams: dream lookup failed", dreamsError);
+    return [];
+  }
+  return dreams ?? [];
+}
+
 export async function transitionGoalState(
   id: string,
   targetState: GoalState,
   abandonReason?: string,
-): Promise<ActionResult<{ unlockedAchievements: NewlyUnlockedAchievement[] }>> {
+): Promise<
+  ActionResult<{
+    unlockedAchievements: NewlyUnlockedAchievement[];
+    offerAchieveDreams: OfferableAchieveDream[];
+  }>
+> {
   const supabase = await createClient();
   const userId = await getUserId(supabase);
 
   const { data: goal, error: fetchError } = await supabase
     .from("goals")
-    .select("id, title, state, owner_id, kind")
+    .select("id, title, state, owner_id, kind, promoted_from_dream_id")
     .eq("id", id)
     .maybeSingle();
 
@@ -269,6 +343,7 @@ export async function transitionGoalState(
   // both — one celebration per completion, just in the voice that fits
   // what was actually completed.
   let unlockedAchievements: NewlyUnlockedAchievement[] = [];
+  let offerAchieveDreams: OfferableAchieveDream[] = [];
   if (targetState === "completed") {
     if (goal.kind === "trip") {
       await emitLlamaMessage(
@@ -301,11 +376,26 @@ export async function transitionGoalState(
         evalError,
       );
     }
+
+    // P8.4: "offer to mark the dream achieved rather than doing it
+    // silently; the user may disagree about what counted" (brief,
+    // verbatim) — this only ever *surfaces* the offer (goal-state-actions.tsx
+    // renders it, the user taps or ignores it); nothing here marks any
+    // dream achieved on its own. Never blocks the transition, which has
+    // already committed.
+    try {
+      offerAchieveDreams = await findOfferableAchieveDreams(supabase, goal);
+    } catch (offerError) {
+      console.error(
+        "Finding offerable achieve-dreams failed after goal completion",
+        offerError,
+      );
+    }
   }
 
   revalidatePath("/goals");
   revalidatePath(`/goals/${id}`);
-  return { ok: true, data: { unlockedAchievements } };
+  return { ok: true, data: { unlockedAchievements, offerAchieveDreams } };
 }
 
 /** Always a soft delete (deleted_at) — never a hard DELETE, and distinct from archiving. */

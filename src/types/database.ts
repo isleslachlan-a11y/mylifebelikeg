@@ -258,6 +258,7 @@ export type Database = {
           period_end: string
           period_start: string
           submitted_at: string | null
+          surfaced_dream_id: string | null
           updated_at: string
           user_id: string
         }
@@ -269,6 +270,7 @@ export type Database = {
           period_end: string
           period_start: string
           submitted_at?: string | null
+          surfaced_dream_id?: string | null
           updated_at?: string
           user_id: string
         }
@@ -280,10 +282,32 @@ export type Database = {
           period_end?: string
           period_start?: string
           submitted_at?: string | null
+          surfaced_dream_id?: string | null
           updated_at?: string
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "check_ins_surfaced_dream_id_fkey"
+            columns: ["surfaced_dream_id"]
+            isOneToOne: false
+            referencedRelation: "someday_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "check_ins_surfaced_dream_id_fkey"
+            columns: ["surfaced_dream_id"]
+            isOneToOne: false
+            referencedRelation: "v_dream_affordability"
+            referencedColumns: ["dream_id"]
+          },
+          {
+            foreignKeyName: "check_ins_surfaced_dream_id_fkey"
+            columns: ["surfaced_dream_id"]
+            isOneToOne: false
+            referencedRelation: "v_dream_prune_candidates"
+            referencedColumns: ["dream_id"]
+          },
           {
             foreignKeyName: "check_ins_user_id_fkey"
             columns: ["user_id"]
@@ -692,6 +716,7 @@ export type Database = {
           kind: Database["public"]["Enums"]["goal_kind"]
           life_area_id: string | null
           owner_id: string
+          promoted_from_dream_id: string | null
           rag_override: Database["public"]["Enums"]["rag_status"] | null
           rag_override_at: string | null
           rag_override_by: string | null
@@ -719,6 +744,7 @@ export type Database = {
           kind?: Database["public"]["Enums"]["goal_kind"]
           life_area_id?: string | null
           owner_id: string
+          promoted_from_dream_id?: string | null
           rag_override?: Database["public"]["Enums"]["rag_status"] | null
           rag_override_at?: string | null
           rag_override_by?: string | null
@@ -746,6 +772,7 @@ export type Database = {
           kind?: Database["public"]["Enums"]["goal_kind"]
           life_area_id?: string | null
           owner_id?: string
+          promoted_from_dream_id?: string | null
           rag_override?: Database["public"]["Enums"]["rag_status"] | null
           rag_override_at?: string | null
           rag_override_by?: string | null
@@ -808,6 +835,27 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "v_user_capacity"
             referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "goals_promoted_from_dream_id_fkey"
+            columns: ["promoted_from_dream_id"]
+            isOneToOne: false
+            referencedRelation: "someday_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "goals_promoted_from_dream_id_fkey"
+            columns: ["promoted_from_dream_id"]
+            isOneToOne: false
+            referencedRelation: "v_dream_affordability"
+            referencedColumns: ["dream_id"]
+          },
+          {
+            foreignKeyName: "goals_promoted_from_dream_id_fkey"
+            columns: ["promoted_from_dream_id"]
+            isOneToOne: false
+            referencedRelation: "v_dream_prune_candidates"
+            referencedColumns: ["dream_id"]
           },
           {
             foreignKeyName: "goals_rag_override_by_fkey"
@@ -1995,11 +2043,22 @@ export type Database = {
       }
       someday_items: {
         Row: {
+          achieved_at: string | null
+          achieved_note: string | null
+          achieved_storage_path: string | null
+          archived_at: string | null
+          cost_base_currency: string | null
+          cost_base_minor: number | null
+          cost_fx_rate_applied: number | null
           country_code: string | null
           created_at: string
           currency: string | null
           deleted_at: string | null
+          goal_promoted_at: string | null
           id: string
+          image_source: Database["public"]["Enums"]["dream_image_source"] | null
+          kind: Database["public"]["Enums"]["dream_kind"]
+          last_surfaced_at: string | null
           latitude: number | null
           life_area_id: string | null
           longitude: number | null
@@ -2007,7 +2066,10 @@ export type Database = {
           notes: string | null
           place_name: string | null
           promoted_at: string | null
+          promoted_goal_id: string | null
           rough_cost_minor: number | null
+          snoozed_until: string | null
+          storage_path: string | null
           title: string
           unsplash_author_name: string | null
           unsplash_author_url: string | null
@@ -2018,11 +2080,24 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          achieved_at?: string | null
+          achieved_note?: string | null
+          achieved_storage_path?: string | null
+          archived_at?: string | null
+          cost_base_currency?: string | null
+          cost_base_minor?: number | null
+          cost_fx_rate_applied?: number | null
           country_code?: string | null
           created_at?: string
           currency?: string | null
           deleted_at?: string | null
+          goal_promoted_at?: string | null
           id?: string
+          image_source?:
+            | Database["public"]["Enums"]["dream_image_source"]
+            | null
+          kind?: Database["public"]["Enums"]["dream_kind"]
+          last_surfaced_at?: string | null
           latitude?: number | null
           life_area_id?: string | null
           longitude?: number | null
@@ -2030,7 +2105,10 @@ export type Database = {
           notes?: string | null
           place_name?: string | null
           promoted_at?: string | null
+          promoted_goal_id?: string | null
           rough_cost_minor?: number | null
+          snoozed_until?: string | null
+          storage_path?: string | null
           title: string
           unsplash_author_name?: string | null
           unsplash_author_url?: string | null
@@ -2041,11 +2119,24 @@ export type Database = {
           user_id: string
         }
         Update: {
+          achieved_at?: string | null
+          achieved_note?: string | null
+          achieved_storage_path?: string | null
+          archived_at?: string | null
+          cost_base_currency?: string | null
+          cost_base_minor?: number | null
+          cost_fx_rate_applied?: number | null
           country_code?: string | null
           created_at?: string
           currency?: string | null
           deleted_at?: string | null
+          goal_promoted_at?: string | null
           id?: string
+          image_source?:
+            | Database["public"]["Enums"]["dream_image_source"]
+            | null
+          kind?: Database["public"]["Enums"]["dream_kind"]
+          last_surfaced_at?: string | null
           latitude?: number | null
           life_area_id?: string | null
           longitude?: number | null
@@ -2053,7 +2144,10 @@ export type Database = {
           notes?: string | null
           place_name?: string | null
           promoted_at?: string | null
+          promoted_goal_id?: string | null
           rough_cost_minor?: number | null
+          snoozed_until?: string | null
+          storage_path?: string | null
           title?: string
           unsplash_author_name?: string | null
           unsplash_author_url?: string | null
@@ -2070,6 +2164,55 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "life_areas"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "someday_items_promoted_goal_id_fkey"
+            columns: ["promoted_goal_id"]
+            isOneToOne: false
+            referencedRelation: "goals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "someday_items_promoted_goal_id_fkey"
+            columns: ["promoted_goal_id"]
+            isOneToOne: false
+            referencedRelation: "v_goal_affordability"
+            referencedColumns: ["goal_id"]
+          },
+          {
+            foreignKeyName: "someday_items_promoted_goal_id_fkey"
+            columns: ["promoted_goal_id"]
+            isOneToOne: false
+            referencedRelation: "v_goal_funding"
+            referencedColumns: ["goal_id"]
+          },
+          {
+            foreignKeyName: "someday_items_promoted_goal_id_fkey"
+            columns: ["promoted_goal_id"]
+            isOneToOne: false
+            referencedRelation: "v_goal_projected_end"
+            referencedColumns: ["goal_id"]
+          },
+          {
+            foreignKeyName: "someday_items_promoted_goal_id_fkey"
+            columns: ["promoted_goal_id"]
+            isOneToOne: false
+            referencedRelation: "v_goal_rag"
+            referencedColumns: ["goal_id"]
+          },
+          {
+            foreignKeyName: "someday_items_promoted_goal_id_fkey"
+            columns: ["promoted_goal_id"]
+            isOneToOne: false
+            referencedRelation: "v_goal_rating_trend"
+            referencedColumns: ["goal_id"]
+          },
+          {
+            foreignKeyName: "someday_items_promoted_goal_id_fkey"
+            columns: ["promoted_goal_id"]
+            isOneToOne: false
+            referencedRelation: "v_rating_divergence"
+            referencedColumns: ["goal_id"]
           },
           {
             foreignKeyName: "someday_items_user_id_fkey"
@@ -2522,6 +2665,20 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "trip_stops_someday_item_id_fkey"
+            columns: ["someday_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_dream_affordability"
+            referencedColumns: ["dream_id"]
+          },
+          {
+            foreignKeyName: "trip_stops_someday_item_id_fkey"
+            columns: ["someday_item_id"]
+            isOneToOne: false
+            referencedRelation: "v_dream_prune_candidates"
+            referencedColumns: ["dream_id"]
+          },
+          {
             foreignKeyName: "trip_stops_trip_id_fkey"
             columns: ["trip_id"]
             isOneToOne: false
@@ -2930,6 +3087,147 @@ export type Database = {
           },
         ]
       }
+      v_dream_affordability: {
+        Row: {
+          committed_monthly_minor: number | null
+          competing_goal_titles: string[] | null
+          cost_base_currency: string | null
+          cost_base_minor: number | null
+          cost_fx_rate_applied: number | null
+          currency: string | null
+          dream_id: string | null
+          monthly_capacity_minor: number | null
+          months_to_afford: number | null
+          realistic_months_to_afford: number | null
+          rough_cost_minor: number | null
+          spare_capacity_minor: number | null
+          title: string | null
+          user_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "someday_items_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "someday_items_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_allocation_summary"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "someday_items_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_checkin_streak"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "someday_items_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_financial_horizon"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "someday_items_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_monthly_capacity"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "someday_items_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_user_capacity"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
+      v_dream_prune_candidates: {
+        Row: {
+          created_at: string | null
+          currency: string | null
+          dream_id: string | null
+          kind: Database["public"]["Enums"]["dream_kind"] | null
+          last_surfaced_at: string | null
+          last_touched_at: string | null
+          rough_cost_minor: number | null
+          title: string | null
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          currency?: string | null
+          dream_id?: string | null
+          kind?: Database["public"]["Enums"]["dream_kind"] | null
+          last_surfaced_at?: string | null
+          last_touched_at?: never
+          rough_cost_minor?: number | null
+          title?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          currency?: string | null
+          dream_id?: string | null
+          kind?: Database["public"]["Enums"]["dream_kind"] | null
+          last_surfaced_at?: string | null
+          last_touched_at?: never
+          rough_cost_minor?: number | null
+          title?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "someday_items_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "someday_items_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_allocation_summary"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "someday_items_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_checkin_streak"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "someday_items_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_financial_horizon"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "someday_items_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_monthly_capacity"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "someday_items_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_user_capacity"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
       v_financial_horizon: {
         Row: {
           horizon_date: string | null
@@ -3186,10 +3484,13 @@ export type Database = {
       }
       v_someday_progress: {
         Row: {
+          achieved_count: number | null
+          archived_count: number | null
           countries_wanted: number | null
           promoted_count: number | null
           still_dreaming: number | null
           total_items: number | null
+          unachieved_cost_minor_base: number | null
           user_id: string | null
         }
         Relationships: [
@@ -3381,6 +3682,7 @@ export type Database = {
         Args: { extra_days: number; task_id: string }
         Returns: string
       }
+      promote_dream_to_goal: { Args: { dream_id: string }; Returns: string }
       promote_someday_to_stop: {
         Args: { nights?: number; someday_id: string; trip_id: string }
         Returns: string
@@ -3389,6 +3691,7 @@ export type Database = {
         Args: { new_sequence: number; stop_id: string }
         Returns: undefined
       }
+      snooze_dream: { Args: { dream_id: string }; Returns: undefined }
       suggest_goal_limit_change: {
         Args: never
         Returns: {
@@ -3396,6 +3699,10 @@ export type Database = {
           direction: string
           reason: string
         }[]
+      }
+      surface_dream_for_checkin: {
+        Args: { check_in_id: string }
+        Returns: string
       }
     }
     Enums: {
@@ -3409,6 +3716,8 @@ export type Database = {
         | "annually"
       cashflow_kind: "income" | "expense"
       dependency_type: "fs" | "ss" | "ff" | "sf"
+      dream_image_source: "unsplash" | "upload"
+      dream_kind: "place" | "object" | "experience" | "other"
       funding_type: "none" | "save_toward" | "spend_against"
       goal_kind: "standard" | "trip"
       goal_state: "active" | "someday" | "completed" | "archived" | "abandoned"
@@ -3450,12 +3759,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -3479,11 +3788,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -3504,11 +3813,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -3529,11 +3838,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -3546,11 +3855,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -3573,6 +3882,8 @@ export const Constants = {
       ],
       cashflow_kind: ["income", "expense"],
       dependency_type: ["fs", "ss", "ff", "sf"],
+      dream_image_source: ["unsplash", "upload"],
+      dream_kind: ["place", "object", "experience", "other"],
       funding_type: ["none", "save_toward", "spend_against"],
       goal_kind: ["standard", "trip"],
       goal_state: ["active", "someday", "completed", "archived", "abandoned"],

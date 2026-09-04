@@ -48,8 +48,8 @@ export function MapOverview({ places }: { places: OverviewPlace[] }) {
     return (
       <p className="text-muted-foreground py-16 text-center text-sm">
         Nothing on the map yet — add a place to your{" "}
-        <Link href="/someday" className="underline">
-          someday list
+        <Link href="/dreams" className="underline">
+          Dream Diary
         </Link>{" "}
         or a trip to see it here.
       </p>

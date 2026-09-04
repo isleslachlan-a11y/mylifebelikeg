@@ -50,6 +50,14 @@ const EXAMPLES: { [K in TriggerCode]: TriggerParams[K] } = {
   first_trip: { tripTitle: "Japan 2027" },
   first_budget_set: { goalTitle: "Emergency Fund" },
   achievement_unlocked: { achievementName: "First Light" },
+  dream_achieved: { dreamTitle: "That leather jacket" },
+  dream_let_go: { dreamTitle: "A vintage motorcycle" },
+  dream_prune_available: { count: 6 },
+  dreams_achieved_recap: {
+    count: 2,
+    totalValueMinor: 385000,
+    currency: "AUD",
+  },
 };
 
 // Every variant, rendered — not a random pick — so all copy is reviewable

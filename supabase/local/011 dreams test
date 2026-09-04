@@ -1,0 +1,217 @@
+-- LOCAL ONLY. Verifies the Dream Diary (P8.0): object-kind dreams with
+-- no place, the image-source and achieved/archived constraints,
+-- v_dream_affordability, and the new dreams_achieved achievement.
+-- Run after 001_smoke_test.sql. The brief names this file
+-- "010_dreams_test.sql" — 010 is already the achievements test in this
+-- repo's actual numbering (space-separated, no extension, same as every
+-- other file in this directory), so this is 011, matching what's
+-- actually on disk rather than the brief's own aspirational number.
+\set ON_ERROR_STOP on
+begin;
+
+-- Must run as a non-superuser role -- same reasoning as 002 rls test's own
+-- header: superusers bypass RLS entirely, which would make every "leaks
+-- nothing across users" assertion below pass vacuously without actually
+-- exercising the someday_select policy or either view's security_invoker.
+-- Grants come from 0008_grants.sql, applied permanently (outside any
+-- transaction) by 002 rls test earlier in the suite run.
+set role authenticated;
+
+select set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+
+-- ---- an object-kind dream with no place saves ---------------------------------
+do $$
+declare v_id uuid;
+begin
+  insert into someday_items (user_id, title, kind, rough_cost_minor, currency, notes)
+  values ('11111111-1111-1111-1111-111111111111', 'That jacket', 'object', 45000, 'GBP',
+          'The one from the shop window, not a knockoff.')
+  returning id into v_id;
+
+  perform 1 from someday_items
+   where id = v_id
+     and kind = 'object'
+     and latitude is null and longitude is null
+     and place_name is null and mapbox_place_id is null and country_code is null;
+  if not found then
+    raise exception 'object-kind dream with no place should have saved with every place field null';
+  end if;
+end $$;
+
+-- Default kind is still 'place' -- every pre-P8.0 row (and anything that
+-- doesn't specify kind) keeps its original meaning.
+do $$
+declare k dream_kind;
+begin
+  select kind into k from someday_items where title = 'Patagonia';
+  assert k = 'place', format('Patagonia (a pre-existing row) should default to place, got %s', k);
+end $$;
+
+-- ---- image-source constraint ---------------------------------------------------
+do $$
+begin
+  begin
+    insert into someday_items (
+      user_id, title, image_source, storage_path,
+      unsplash_photo_id, unsplash_author_name, unsplash_author_url
+    ) values (
+      '11111111-1111-1111-1111-111111111111', 'Contradictory image', 'upload', 'dreams/some-file.jpg',
+      'abc123', 'A Photographer', 'https://unsplash.com/@someone'
+    );
+    assert false, 'a row with both an upload path and Unsplash attribution should be refused';
+  exception when check_violation then null;
+  end;
+
+  -- An upload alone is fine.
+  perform 1;
+  insert into someday_items (user_id, title, image_source, storage_path)
+  values ('11111111-1111-1111-1111-111111111111', 'Uploaded photo', 'upload', 'dreams/real-file.jpg');
+
+  -- An upload path claiming to be Unsplash-sourced is refused too --
+  -- image_source and which columns are actually set must agree.
+  begin
+    insert into someday_items (user_id, title, image_source, storage_path)
+    values ('11111111-1111-1111-1111-111111111111', 'Mislabelled', 'unsplash', 'dreams/oops.jpg');
+    assert false, 'image_source = unsplash with a storage_path (and no attribution) should be refused';
+  exception when check_violation then null;
+  end;
+end $$;
+
+-- ---- achieved and archived cannot both be set -----------------------------------
+do $$
+declare v_id uuid;
+begin
+  insert into someday_items (user_id, title, kind)
+  values ('11111111-1111-1111-1111-111111111111', 'Will be achieved', 'experience')
+  returning id into v_id;
+
+  begin
+    update someday_items set achieved_at = now(), archived_at = now() where id = v_id;
+    assert false, 'a dream cannot be both achieved and archived';
+  exception when check_violation then null;
+  end;
+
+  -- Achieving alone is fine, and an achieved photo needs achieved_at.
+  update someday_items set achieved_at = now(), achieved_note = 'Did it.' where id = v_id;
+
+  begin
+    insert into someday_items (user_id, title, achieved_storage_path)
+    values ('11111111-1111-1111-1111-111111111111', 'Achieved photo with no achieved_at', 'dreams/proof.jpg');
+    assert false, 'an achieved_storage_path with no achieved_at should be refused';
+  exception when check_violation then null;
+  end;
+
+  -- Archiving alone is fine too.
+  perform 1;
+  insert into someday_items (user_id, title, archived_at)
+  values ('11111111-1111-1111-1111-111111111111', 'No longer wanted', now());
+end $$;
+
+-- ---- v_dream_affordability: a sane figure ---------------------------------------
+do $$
+declare a record;
+begin
+  -- User A has real monthly capacity (001 smoke test's own fixture) and
+  -- this dream is in their own base currency, so the maths should
+  -- resolve to a real number, not null.
+  insert into someday_items (user_id, title, kind, rough_cost_minor, currency)
+  values ('11111111-1111-1111-1111-111111111111', 'A costed dream', 'object', 100000, 'AUD');
+
+  select * into a from v_dream_affordability
+   where user_id = '11111111-1111-1111-1111-111111111111' and title = 'A costed dream';
+
+  assert found, 'the costed dream should appear in v_dream_affordability';
+  assert a.months_to_afford is not null and a.months_to_afford >= 0,
+    format('months_to_afford should be a real number, got %s', a.months_to_afford);
+
+  -- Achieved/archived/uncosted dreams never appear.
+  perform 1 from v_dream_affordability where title = 'Will be achieved';
+  if found then
+    raise exception 'an achieved dream should not appear in v_dream_affordability';
+  end if;
+
+  perform 1 from v_dream_affordability where title = 'No longer wanted';
+  if found then
+    raise exception 'an archived dream should not appear in v_dream_affordability';
+  end if;
+
+  perform 1 from v_dream_affordability where title = 'That jacket';
+  if not found then
+    raise exception 'an unachieved, unarchived, costed dream should appear in v_dream_affordability';
+  end if;
+end $$;
+
+-- ---- v_dream_affordability leaks nothing across users ---------------------------
+select set_config('request.jwt.claim.sub', '22222222-2222-2222-2222-222222222222', false);
+do $$
+declare n int;
+begin
+  select count(*) into n from v_dream_affordability
+   where user_id = '11111111-1111-1111-1111-111111111111';
+  assert n = 0, format('LEAK: B sees %s of A''s rows through v_dream_affordability', n);
+
+  select count(*) into n from v_someday_progress
+   where user_id = '11111111-1111-1111-1111-111111111111';
+  assert n = 0, format('LEAK: B sees A''s someday progress, %s row(s)', n);
+end $$;
+
+-- ---- v_someday_progress: achieved/archived counts --------------------------------
+select set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+do $$
+declare p record;
+begin
+  select * into p from v_someday_progress where user_id = '11111111-1111-1111-1111-111111111111';
+  assert p.achieved_count >= 1, format('achieved_count should reflect the achieved dream, got %s', p.achieved_count);
+  assert p.archived_count >= 1, format('archived_count should reflect the archived dream, got %s', p.archived_count);
+  assert p.unachieved_cost_minor_base > 0,
+    format('unachieved_cost_minor_base should sum the costed, unachieved dreams, got %s', p.unachieved_cost_minor_base);
+
+  -- P8.4/0034: still_dreaming must exclude achieved dreams too, not
+  -- just promoted ones. Every achieved item is guaranteed excluded by
+  -- the view's own filter regardless of promoted_at, so still_dreaming
+  -- can never exceed total_items - achieved_count -- an archived (but
+  -- never promoted or achieved) item is still counted as "still
+  -- dreaming" by design here (archived is a separate axis this fix
+  -- doesn't touch, same as before it), so this is <=, not a tighter
+  -- equality that would assume otherwise.
+  perform 1 from someday_items
+   where user_id = '11111111-1111-1111-1111-111111111111'
+     and title = 'Will be achieved' and promoted_at is null and achieved_at is not null;
+  if not found then
+    raise exception 'fixture assumption broken: "Will be achieved" should be achieved and never promoted';
+  end if;
+  assert p.still_dreaming <= p.total_items - p.achieved_count,
+    format('still_dreaming (%s) should exclude every achieved dream (total %s, achieved %s)',
+      p.still_dreaming, p.total_items, p.achieved_count);
+end $$;
+
+-- ---- dreams_achieved fires once and only once ------------------------------------
+do $$
+declare n int; newly int;
+begin
+  perform app.evaluate_achievements('11111111-1111-1111-1111-111111111111');
+
+  select count(*) into n
+  from user_achievements ua join achievements ac on ac.id = ua.achievement_id
+  where ua.user_id = '11111111-1111-1111-1111-111111111111' and ac.code = 'new_star';
+  assert n = 1, format('New Star should unlock on the first achieved dream, got %s', n);
+
+  select count(*) into newly from app.evaluate_achievements('11111111-1111-1111-1111-111111111111');
+  assert newly = 0, format('re-evaluating should unlock nothing new, got %s', newly);
+
+  -- Achieving a second dream should not re-grant an already-held achievement.
+  update someday_items set achieved_at = now()
+   where user_id = '11111111-1111-1111-1111-111111111111' and title = 'That jacket';
+
+  select count(*) into newly from app.evaluate_achievements('11111111-1111-1111-1111-111111111111');
+  assert newly = 0, 'New Star is already held -- a second achieved dream should not re-fire it';
+
+  select count(*) into n
+  from user_achievements ua join achievements ac on ac.id = ua.achievement_id
+  where ua.user_id = '11111111-1111-1111-1111-111111111111' and ac.code = 'new_star';
+  assert n = 1, format('New Star should still be held exactly once, got %s', n);
+end $$;
+
+reset role;
+rollback;
+select 'DREAM DIARY VERIFIED' as result;
