@@ -100,6 +100,14 @@ jobs:
       - name: Run every local suite, in order (000 already ran above)
         run: |
           set -euo pipefail
+          # Filenames here are space-separated, not underscore-joined
+          # ("001 smoke test", not "001_smoke_test.sql") -- plain
+          # unquoted `for f in $(...)` word-splits on every space, not
+          # just newlines, which silently turned "001 smoke test" into
+          # three separate (nonexistent) filenames the first time this
+          # ran for real. IFS=$'\n' restricts splitting to one filename
+          # per line, which is exactly what `ls` already produces.
+          IFS=$'\n'
           for f in $(ls supabase/local/ | sort -V | grep -v "^000 "); do
             echo "::group::$f"
             psql -v ON_ERROR_STOP=1 -f "supabase/local/$f"
