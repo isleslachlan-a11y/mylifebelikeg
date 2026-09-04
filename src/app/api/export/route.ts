@@ -13,6 +13,7 @@ import { NextResponse } from "next/server";
 
 import { createClient } from "@/lib/supabase/server";
 import { DREAM_PHOTOS_BUCKET } from "@/lib/storage/dream-photos";
+import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 
 // Never statically optimized/cached — every hit must read this user's
 // live data, not a cached response from whenever the route was last
@@ -72,16 +73,22 @@ export const dynamic = "force-dynamic";
  * so buffering one photo at a time is a fixed, bounded cost, not the
  * unbounded "whole export in memory" problem streaming is meant to avoid.
  *
- * Rate-limited via `profiles.last_export_at` (0041) — the same
- * one-timestamp-on-profiles debounce shape `llama_evaluated_at` (0020)
- * and `achievements_evaluated_at` (0028) already use, chosen for the
- * same reason: one row per user, no new table. A zip with photos is
- * genuinely expensive (Storage bandwidth, CPU to compress), unlike
- * those two silent background sweeps, so this rejects with 429 inside
- * the cooldown rather than silently no-op'ing — the user is actively
- * waiting on this one.
+ * Rate-limited two ways (P9.2 added the second): per-account via
+ * `profiles.last_export_at` (0041) — the same one-timestamp-on-profiles
+ * debounce shape `llama_evaluated_at` (0020) and
+ * `achievements_evaluated_at` (0028) already use, chosen for the same
+ * reason: one row per user, no new table — and per-IP via
+ * `src/lib/rate-limit.ts`'s Postgres-backed `check_rate_limit` (0042),
+ * catching one source hammering the endpoint across several accounts,
+ * which the account-scoped cooldown alone can't see. A zip with photos
+ * is genuinely expensive (Storage bandwidth, CPU to compress), unlike
+ * the two silent background sweeps above, so both rejections return 429
+ * rather than silently no-op'ing — the user is actively waiting on
+ * this one.
  */
 const EXPORT_COOLDOWN_MS = 15 * 60 * 1000;
+const EXPORT_IP_LIMIT = 20;
+const EXPORT_IP_WINDOW_SECONDS = 60 * 60;
 
 function csvEscape(value: unknown): string {
   if (value === null || value === undefined) return "";
@@ -112,13 +119,26 @@ function toCsv(rows: Record<string, unknown>[]): string {
   return [header, ...lines].join("\n") + "\n";
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const supabase = await createClient();
   const { data: auth } = await supabase.auth.getClaims();
   if (!auth) {
     return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   }
   const userId = auth.claims.sub;
+
+  const ip = getClientIp(request.headers);
+  const { allowed: ipAllowed } = await checkRateLimit(
+    `export:ip:${ip}`,
+    EXPORT_IP_LIMIT,
+    EXPORT_IP_WINDOW_SECONDS,
+  );
+  if (!ipAllowed) {
+    return NextResponse.json(
+      { error: "Too many exports from this network. Try again later." },
+      { status: 429 },
+    );
+  }
 
   const { data: rateLimitRow, error: rateLimitError } = await supabase
     .from("profiles")
