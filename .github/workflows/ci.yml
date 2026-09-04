@@ -68,6 +68,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # A fresh Postgres service container already has its own default
+      # `public` schema -- 0008_baseline_schema.sql's own `CREATE SCHEMA
+      # public;` (a real statement from the live dump it was built from)
+      # collides with that unless it's dropped first. The exact same
+      # collision this package's own local development kept hitting
+      # against the scratch Docker container -- caught here only because
+      # this step was missing from the actual workflow file, not from
+      # the local by-hand process used to build and validate everything
+      # else in this package.
+      - name: Drop the default public schema (collides with 0008's own CREATE SCHEMA public)
+        run: psql -v ON_ERROR_STOP=1 -c "DROP SCHEMA IF EXISTS public CASCADE;"
+
       - name: Auth + storage shim (000 auth shim)
         run: psql -v ON_ERROR_STOP=1 -f "supabase/local/000 auth shim"
 
