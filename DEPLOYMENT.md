@@ -96,6 +96,13 @@ dashboard → **Authentication → URL Configuration**, for the same project
   - `http://localhost:3000/auth/callback` and `http://localhost:3003/auth/callback`
     — local dev (the second is the port this repo's own testing has used;
     add another entry here if you routinely run `next dev` on a different one).
+  - The same four, with `/reset-password` instead of `/auth/callback` (P9.3)
+    — `resetPasswordForEmail`'s own `redirectTo` points there directly
+    rather than through the shared callback route (`src/app/(auth)/reset-password/reset-password-form.tsx`'s
+    own header explains why: the code exchange has to happen client-side,
+    where it can write the session cookie). Verified live against
+    production — `resetPasswordForEmail` with this `redirectTo` returns no
+    error once the entry exists; it did before, rejecting the redirect.
 
 Set via the Management API (`PATCH /v1/projects/{ref}/config/auth`) rather
 than by hand in this instance — the dashboard page is
@@ -236,17 +243,20 @@ reasoning:
   best-effort — a backstop against a scripted flood, not a precise
   guarantee, and not guaranteed to survive a cold start or hold
   consistently across concurrent instances.
-- **Precise, named**: signup, login, and export each get a
-  Postgres-backed check (`src/lib/rate-limit.ts`, migration 0042) —
-  per-IP *and* per-account where both make sense (login, signup), which
-  survives restarts and is consistent across every instance, at the
-  cost of one DB round trip per call. Reserved for the handful of
-  surfaces where the limit actually needs to be exact.
+- **Precise, named**: signup, login, password reset, and export each
+  get a Postgres-backed check (`src/lib/rate-limit.ts`, migration
+  0042) — per-IP *and* per-account where both make sense (login,
+  signup, password reset), which survives restarts and is consistent
+  across every instance, at the cost of one DB round trip per call.
+  Reserved for the handful of surfaces where the limit actually needs
+  to be exact.
 
-There is currently no password-reset flow in this app at all (checked
-directly — no `resetPasswordForEmail` call site exists), so there's
-nothing to rate-limit there yet; when one is built, it needs the same
-per-IP-and-per-account treatment as login.
+Password reset (P9.3, `/forgot-password`) was the one named gap P9.2
+flagged and left unbuilt — `requestPasswordReset`
+(`src/app/(auth)/forgot-password/actions.ts`) uses the same
+per-IP-and-per-account shape as login, just with looser numbers (3 per
+account / 10 per IP per 15 minutes, vs. login's 5/20 — a genuine
+password-reset request is rarer per person than a login attempt).
 
 ## CI vs. deploy
 

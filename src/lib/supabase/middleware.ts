@@ -4,7 +4,14 @@ import { NextResponse, type NextRequest } from "next/server";
 import type { Database } from "@/types/database";
 
 // Routes unauthenticated visitors may reach; everything else is gated.
-const AUTH_ROUTES = ["/login", "/signup"];
+// /reset-password included deliberately: on the very first load of a
+// password-recovery link (`?code=...`), the session cookie this check
+// reads doesn't exist yet — the client-side code exchange that
+// establishes it (reset-password-form.tsx) hasn't run at that point,
+// since it happens in the browser, after this middleware has already
+// let the request through. Gating this route would redirect that first
+// load to /login before the exchange ever gets a chance to run.
+const AUTH_ROUTES = ["/login", "/signup", "/forgot-password", "/reset-password"];
 // "/" is deliberately not gated here — it does its own three-way
 // auth/profile branch (see src/app/page.tsx) rather than duplicating it.
 const UNGATED_ROUTES = ["/", "/auth/callback"];
