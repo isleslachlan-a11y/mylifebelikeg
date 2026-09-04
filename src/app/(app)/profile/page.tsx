@@ -222,13 +222,24 @@ export default async function ProfilePage() {
           </Link>
           {/* P5.5: a plain anchor, not a button + fetch — /api/export sets
               its own Content-Disposition: attachment header, so the
-              browser downloads it on navigation with no client JS needed. */}
+              browser downloads it on navigation with no client JS needed.
+              P9.1: now a zip (JSON + CSVs + photos), same link. */}
           <a
             href="/api/export"
             className="text-primary text-sm underline-offset-4 hover:underline"
           >
             Export your data
           </a>
+          {/* P9.1: export-and-delete live together at /settings/account —
+              "offer the export inside the deletion flow" (brief) means
+              someone who lands here from "delete my account" sees the
+              export link again right there, not just on this page. */}
+          <Link
+            href="/settings/account"
+            className="text-primary text-sm underline-offset-4 hover:underline"
+          >
+            Manage account / delete account
+          </Link>
         </div>
       </section>
     </div>

@@ -46,6 +46,22 @@ as $$
   select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid;
 $$;
 
+-- P9.1: service_role needs real access to auth.users, not just
+-- bypassrls -- bypassrls only exempts row-level security policies, it
+-- has no effect on ordinary schema/table GRANTs, so without this a
+-- `set role service_role; delete from auth.users ...` (the local proxy
+-- for what auth.admin.deleteUser() does server-side in production --
+-- see supabase/local/015 deletion test) fails on a bare "permission
+-- denied for schema auth", not the RLS-shaped failure this shim
+-- otherwise exists to exercise. Real Supabase grants its service-role
+-- key genuine Admin API access to auth.users through its own internal
+-- role, which this mirrors narrowly rather than replicating in full --
+-- `authenticated`/`anon` get nothing here, matching that ordinary users
+-- never get table-level access to auth.users in a real project either
+-- (auth.uid() reads the JWT directly, never queries this table).
+grant usage on schema auth to service_role;
+grant all on auth.users to service_role;
+
 -- ---------------------------------------------------------------------
 -- Storage. Real Supabase Storage is a whole separate service (signed
 -- URLs, a CDN, an HTTP API) -- none of that is reachable or meaningful

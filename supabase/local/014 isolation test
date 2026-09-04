@@ -539,6 +539,49 @@ begin
 end $$;
 
 -- =============================================================================
+-- PART 5b: forging a grant. Found while implementing P9.1's deletion
+-- cascade (which reasons about share_grants directly), added here
+-- because it's really a P9.0-class isolation bug on a *write* path this
+-- package hadn't tested: share_grants_insert used to accept any
+-- grantor_id = auth.uid() with no check that the grantor had any real
+-- authority over the resource. As B (zero relationship to A's private
+-- goal): forge a grant naming B as grantor, C as grantee, on that goal.
+-- Must be refused outright (0040's app.can_grant()), not just invisible
+-- later -- an insert that silently succeeds but grants nothing would
+-- still be a policy bug worth catching here.
+-- =============================================================================
+select set_config('request.jwt.claim.sub', '55555555-5555-5555-5555-555555555555', false);
+do $$
+begin
+  begin
+    insert into share_grants (resource_type, resource_id, grantor_id, grantee_id, scope)
+    values ('goal', 'a0000000-0000-0000-0000-000000000011', '55555555-5555-5555-5555-555555555555', '33333333-3333-3333-3333-333333333333', 'view');
+    assert false, 'LEAK: B forged a grant on A''s goal despite having no authority over it';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+-- Second half of the same bug: share_grants_update had no WITH CHECK at
+-- all, and let the *grantee* update the row unilaterally -- confirmed
+-- live, a grantee could rewrite their own view-only grant's scope to
+-- edit with zero grantor involvement. As C (the real, legitimate
+-- grantee from PART 5 above): try to escalate that grant's own scope.
+select set_config('request.jwt.claim.sub', '33333333-3333-3333-3333-333333333333', false);
+do $$
+begin
+  update share_grants set scope = 'edit' where id = 'a0000000-0000-0000-0000-000000000090';
+end $$;
+reset role;
+do $$
+declare v_scope text;
+begin
+  select scope into v_scope from share_grants where id = 'a0000000-0000-0000-0000-000000000090';
+  assert v_scope = 'view', format('LEAK: C (the grantee, not the grantor) escalated their own grant''s scope to %s', v_scope);
+end $$;
+set role authenticated;
+select set_config('request.jwt.claim.sub', '55555555-5555-5555-5555-555555555555', false);
+
+-- =============================================================================
 -- PART 6: storage. As B, attempt read, list, overwrite and delete of
 -- A's object by direct path. All four refused. (This exercises the
 -- policy logic in the storage.objects shim from 000 auth shim -- the
