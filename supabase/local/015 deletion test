@@ -1,0 +1,330 @@
+-- LOCAL ONLY. P9.1: "test in 015 [the brief said 011, already taken --
+-- see 014's own header for why numbering here isn't gapless]: delete
+-- user A, then assert zero rows remaining across every enumerated
+-- table, zero objects under the prefix, no auth.users row, and user
+-- B's data untouched. Reuse the schema enumeration from P9.0 so a new
+-- table is covered by deletion automatically" (brief, verbatim).
+--
+-- "Reuse the schema enumeration" is done one step stronger here than
+-- 014's own PART 0: instead of a hand-maintained list of table names
+-- that has to be remembered on every new table (014's own approach,
+-- fine for an RLS suite where "is this table covered by a policy" has
+-- no mechanical source of truth), PART 0 below queries
+-- `pg_constraint` for every foreign key that references
+-- `public.profiles(id)`, anywhere in the schema. That list *is* the
+-- exact set of places a deleted user's id could still be lurking after
+-- deletion, mechanically, so a table added later with a `user_id`/
+-- `owner_id`/etc. column referencing profiles is automatically in
+-- scope the moment its migration adds the FK -- no second edit to this
+-- file required. A cross-check against `information_schema.columns`
+-- (does every *plausibly-named* person column have a matching FK in
+-- that set?) catches the one gap this can't self-detect: a column
+-- named like an owner column that was never actually given a real FK.
+--
+-- Assumes 000 auth shim has already been applied. Wrapped in its own
+-- begin/rollback (014's own convention) so this suite -- which really
+-- does delete an `auth.users` row -- leaves nothing behind.
+\set ON_ERROR_STOP on
+
+-- =============================================================================
+-- PART 0: FK-derived coverage. Every (table, column) that references
+-- profiles(id), enumerated from the catalog, not typed out by hand.
+-- =============================================================================
+do $$
+declare
+  v_row record;
+  v_fk_covered text[] := '{}';
+  v_name_covered text[] := '{}';
+  v_gap text[] := '{}';
+begin
+  -- The real, mechanical source of truth: every FK onto profiles(id).
+  for v_row in
+    select conrelid::regclass::text as table_name, a.attname as column_name
+    from pg_constraint c
+    join pg_attribute a on a.attrelid = c.conrelid and a.attnum = any(c.conkey)
+    where c.contype = 'f' and c.confrelid = 'public.profiles'::regclass
+  loop
+    v_fk_covered := v_fk_covered || format('%s.%s', v_row.table_name, v_row.column_name);
+  end loop;
+
+  assert array_length(v_fk_covered, 1) >= 20,
+    format('expected at least 20 FKs onto profiles(id), found %s -- did the catalog query break?', array_length(v_fk_covered, 1));
+
+  -- Sanity cross-check: any column that *looks* like a person reference
+  -- (by name) but has no real FK in the set above is a gap worth
+  -- knowing about -- either it should have a real FK, or it's a
+  -- deliberate non-FK reference this suite needs to know to check by
+  -- hand instead.
+  for v_row in
+    select c.table_name, c.column_name
+    from information_schema.columns c
+    join information_schema.tables t
+      on t.table_schema = c.table_schema and t.table_name = c.table_name
+    where c.table_schema = 'public'
+      and t.table_type = 'BASE TABLE'
+      and c.column_name in (
+        'user_id', 'owner_id', 'grantor_id', 'grantee_id', 'inviter_id',
+        'invitee_id', 'set_by', 'revoked_by', 'invited_by', 'accepted_by',
+        'rag_override_by'
+      )
+  loop
+    v_name_covered := v_name_covered || format('%s.%s', v_row.table_name, v_row.column_name);
+    if not (format('%s.%s', v_row.table_name, v_row.column_name) = any(v_fk_covered)) then
+      v_gap := v_gap || format('%s.%s', v_row.table_name, v_row.column_name);
+    end if;
+  end loop;
+
+  assert array_length(v_gap, 1) is null,
+    format('person-shaped column(s) with no real FK onto profiles -- add a real FK, or a manual check in this suite: %s', v_gap);
+end $$;
+
+begin;
+
+-- =============================================================================
+-- PART 1: fixture. Two users -- A (deleted below) and B (the control,
+-- asserted untouched at the end). Deliberately gives A a presence in
+-- both directions on B's goal (a task A owns, an override A set) so
+-- the "someone else's goal" reassignment path in
+-- app.prepare_user_deletion is exercised by the same run that also
+-- exercises the "own goal" delete path via A's own goal.
+-- =============================================================================
+insert into auth.users (id, email) values
+  ('66666666-6666-6666-6666-666666666666', 'del-a@example.com'),
+  ('77777777-7777-7777-7777-777777777777', 'del-b@example.com');
+
+insert into profiles (id, handle, display_name, base_currency, timezone) values
+  ('66666666-6666-6666-6666-666666666666', 'del_user_a', 'Deletion A', 'AUD', 'Australia/Brisbane'),
+  ('77777777-7777-7777-7777-777777777777', 'del_user_b', 'Deletion B', 'AUD', 'Australia/Brisbane');
+
+-- A's own stuff.
+insert into pots (id, user_id, name, currency, opening_balance_minor) values
+  ('b0000000-0000-0000-0000-000000000001', '66666666-6666-6666-6666-666666666666', 'A''s pot', 'AUD', 50000);
+insert into cashflow_items (id, user_id, kind, label, amount_minor, currency) values
+  ('b0000000-0000-0000-0000-000000000002', '66666666-6666-6666-6666-666666666666', 'income', 'A''s salary', 400000, 'AUD');
+insert into goals (id, owner_id, kind, title, funding, currency, target_amount_minor, start_date) values
+  ('b0000000-0000-0000-0000-000000000010', '66666666-6666-6666-6666-666666666666', 'standard', 'A''s own goal', 'save_toward', 'AUD', 100000, current_date),
+  ('b0000000-0000-0000-0000-000000000011', '66666666-6666-6666-6666-666666666666', 'trip', 'A''s own trip', 'save_toward', 'AUD', 150000, current_date);
+-- A owns a task on A's own goal -- the RESTRICT self-delete case.
+insert into tasks (id, goal_id, owner_id, title, offset_days, duration_days) values
+  ('b0000000-0000-0000-0000-000000000020', 'b0000000-0000-0000-0000-000000000010', '66666666-6666-6666-6666-666666666666', 'A''s own task', 0, 2);
+-- A sets an override on A's own goal -- the NO ACTION self-delete case.
+insert into rag_override_history (id, goal_id, status, reason, set_by, set_at, expires_at) values
+  ('b0000000-0000-0000-0000-000000000021', 'b0000000-0000-0000-0000-000000000010', 'green', 'A''s own override', '66666666-6666-6666-6666-666666666666', now(), now() + interval '14 days');
+insert into ledger_entries (id, user_id, goal_id, entry_type, amount_minor, currency, base_currency, base_amount_minor, fx_rate_applied) values
+  ('b0000000-0000-0000-0000-000000000030', '66666666-6666-6666-6666-666666666666', 'b0000000-0000-0000-0000-000000000010', 'contribution', 5000, 'AUD', 'AUD', 5000, 1);
+insert into check_ins (id, user_id, period_start, period_end, submitted_at) values
+  ('b0000000-0000-0000-0000-000000000040', '66666666-6666-6666-6666-666666666666', current_date - 6, current_date, now());
+insert into goal_ratings (id, check_in_id, goal_id, user_id, score) values
+  ('b0000000-0000-0000-0000-000000000041', 'b0000000-0000-0000-0000-000000000040', 'b0000000-0000-0000-0000-000000000010', '66666666-6666-6666-6666-666666666666', 5);
+insert into someday_items (id, user_id, title, kind) values
+  ('b0000000-0000-0000-0000-000000000050', '66666666-6666-6666-6666-666666666666', 'A''s dream', 'object');
+insert into rag_snapshots (id, goal_id, schedule_status, budget_status, momentum_status, overall_status) values
+  ('b0000000-0000-0000-0000-000000000060', 'b0000000-0000-0000-0000-000000000010', 'green', 'green', 'green', 'green');
+insert into capacity_suggestion_dismissals (id, user_id, period_start) values
+  ('b0000000-0000-0000-0000-000000000070', '66666666-6666-6666-6666-666666666666', current_date);
+insert into llama_messages (id, user_id, speaker, trigger_code, body, priority) values
+  ('b0000000-0000-0000-0000-000000000080', '66666666-6666-6666-6666-666666666666', 'fluffy', 'streak', 'A''s own message', 1);
+insert into user_achievements (id, user_id, achievement_id)
+  select 'b0000000-0000-0000-0000-000000000081', '66666666-6666-6666-6666-666666666666', id
+  from achievements where code = 'first_light';
+insert into trips (id, goal_id) values
+  ('b0000000-0000-0000-0000-000000000090', 'b0000000-0000-0000-0000-000000000011');
+insert into trip_stops (id, trip_id, sequence, name, nights) values
+  ('b0000000-0000-0000-0000-000000000091', 'b0000000-0000-0000-0000-000000000090', 0, 'A''s stop', 1);
+insert into trip_legs (id, trip_id, to_stop_id, mode) values
+  ('b0000000-0000-0000-0000-000000000092', 'b0000000-0000-0000-0000-000000000090', 'b0000000-0000-0000-0000-000000000091', 'flight');
+
+-- A dream-photos object under A's own prefix -- exactly the
+-- {user_id}/{dream_id}/{uuid}.webp shape 0032/0041's own comments
+-- describe, so PART 3's storage check exercises the real convention.
+insert into storage.buckets (id, name, public) values ('dream-photos', 'dream-photos', false)
+  on conflict (id) do nothing;
+insert into storage.objects (id, bucket_id, name, owner_id) values
+  ('b0000000-0000-0000-0000-0000000000a0', 'dream-photos', '66666666-6666-6666-6666-666666666666/some-dream/photo.webp', '66666666-6666-6666-6666-666666666666'),
+  ('b0000000-0000-0000-0000-0000000000a1', 'dream-photos', '66666666-6666-6666-6666-666666666666/some-dream/photo_thumb.webp', '66666666-6666-6666-6666-666666666666');
+
+-- B's own goal, and A's presence on it -- the "someone else's goal"
+-- reassignment path, not the self-owned delete path.
+insert into pots (id, user_id, name, currency, opening_balance_minor) values
+  ('b0000000-0000-0000-0000-0000000000b0', '77777777-7777-7777-7777-777777777777', 'B''s pot', 'AUD', 20000);
+insert into goals (id, owner_id, kind, title, funding, currency, target_amount_minor, start_date) values
+  ('b0000000-0000-0000-0000-0000000000b1', '77777777-7777-7777-7777-777777777777', 'standard', 'B''s goal', 'save_toward', 'AUD', 80000, current_date);
+insert into goal_participants (id, goal_id, user_id, role, invited_by) values
+  ('b0000000-0000-0000-0000-0000000000b2', 'b0000000-0000-0000-0000-0000000000b1', '66666666-6666-6666-6666-666666666666', 'collaborator', '77777777-7777-7777-7777-777777777777');
+-- A owns a task on B's goal (a collaborator assignment).
+insert into tasks (id, goal_id, owner_id, title, offset_days, duration_days) values
+  ('b0000000-0000-0000-0000-0000000000b3', 'b0000000-0000-0000-0000-0000000000b1', '66666666-6666-6666-6666-666666666666', 'A helps on B''s goal', 0, 1);
+-- A set an override on B's goal (also a collaborator action).
+insert into rag_override_history (id, goal_id, status, reason, set_by, set_at, expires_at) values
+  ('b0000000-0000-0000-0000-0000000000b4', 'b0000000-0000-0000-0000-0000000000b1', 'amber', 'A''s override on B''s goal', '66666666-6666-6666-6666-666666666666', now(), now() + interval '14 days');
+-- A invited B onto A's own goal (the other direction of invited_by --
+-- goal_participants_user_id_fkey is CASCADE so this row goes away
+-- entirely with A regardless, exercised as part of the FK-based scan).
+insert into invitations (id, inviter_id, invitee_id, token_hash, resource_type, resource_id) values
+  ('b0000000-0000-0000-0000-0000000000b5', '66666666-6666-6666-6666-666666666666', '77777777-7777-7777-7777-777777777777', 'deadbeefaa', 'goal', 'b0000000-0000-0000-0000-000000000010');
+-- A grants B view access on A's own goal (grantor_id = A, CASCADE).
+insert into share_grants (id, resource_type, resource_id, grantor_id, grantee_id, scope) values
+  ('b0000000-0000-0000-0000-0000000000b6', 'goal', 'b0000000-0000-0000-0000-000000000010', '66666666-6666-6666-6666-666666666666', '77777777-7777-7777-7777-777777777777', 'view');
+
+-- =============================================================================
+-- PART 2: negative check first -- public.prepare_user_deletion refuses
+-- for anyone but service_role. Confirmed against the real GUC-based
+-- check, not `current_user` (see 0041's own comment for why the
+-- obvious-looking `current_user` version is actually always wrong
+-- inside a SECURITY DEFINER function).
+-- =============================================================================
+select set_config('request.jwt.claim.role', 'authenticated', false);
+set role authenticated;
+select set_config('request.jwt.claim.sub', '66666666-6666-6666-6666-666666666666', false);
+do $$
+begin
+  begin
+    perform public.prepare_user_deletion('66666666-6666-6666-6666-666666666666');
+    assert false, 'LEAK: an authenticated (non-service-role) caller ran prepare_user_deletion';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+
+-- =============================================================================
+-- PART 3: prepare, then delete auth.users -- the same two-step order
+-- src/app/api/account/process-deletions/route.ts uses (storage wipe
+-- happens between them there; simulated directly on storage.objects
+-- here, since the real recursive Storage-API listing is Next.js-side
+-- logic this plain-SQL suite can't reach -- same scoping note 014's own
+-- PART 6 makes about the real Storage HTTP API being covered
+-- separately, live, in P8.7's breach test).
+-- =============================================================================
+select set_config('request.jwt.claim.role', 'service_role', false);
+set role service_role;
+
+-- Storage: list-then-remove-then-verify, same shape as
+-- wipeUserStorage() in the real route.
+do $$
+declare v_remaining int;
+begin
+  delete from storage.objects where owner_id = '66666666-6666-6666-6666-666666666666';
+  select count(*) into v_remaining from storage.objects where owner_id = '66666666-6666-6666-6666-666666666666';
+  assert v_remaining = 0, format('storage objects survived removal: %s', v_remaining);
+end $$;
+
+select public.prepare_user_deletion('66666666-6666-6666-6666-666666666666');
+
+-- Confirm the reassignment/delete split worked exactly as
+-- 0041 documents, before the auth cascade even runs.
+do $$
+declare n int; v_owner uuid;
+begin
+  -- A's own task, on A's own goal: deleted outright (RESTRICT, no
+  -- grace period even within the same eventual cascade).
+  select count(*) into n from tasks where id = 'b0000000-0000-0000-0000-000000000020';
+  assert n = 0, 'A''s self-owned task should already be gone after prepare_user_deletion';
+
+  -- A's own override, on A's own goal: deleted outright (NO ACTION,
+  -- also no grace period in practice -- see 0041's own corrected note).
+  select count(*) into n from rag_override_history where id = 'b0000000-0000-0000-0000-000000000021';
+  assert n = 0, 'A''s self-owned override should already be gone after prepare_user_deletion';
+
+  -- A's task on B's goal: survives, reassigned to B (the goal's real owner).
+  select owner_id into v_owner from tasks where id = 'b0000000-0000-0000-0000-0000000000b3';
+  assert v_owner = '77777777-7777-7777-7777-777777777777', 'A''s task on B''s goal should be reassigned to B, not deleted';
+
+  -- A's override on B's goal: survives, reassigned to B.
+  select set_by into v_owner from rag_override_history where id = 'b0000000-0000-0000-0000-0000000000b4';
+  assert v_owner = '77777777-7777-7777-7777-777777777777', 'A''s override on B''s goal should be reassigned to B, not deleted';
+end $$;
+
+-- The actual removal -- what auth.admin.deleteUser() does under the
+-- hood in production; a plain DELETE against auth.users is the
+-- faithful local proxy for it, since the cascade this suite cares
+-- about is entirely a Postgres-level FK property, not something the
+-- Admin API itself adds on top.
+delete from auth.users where id = '66666666-6666-6666-6666-666666666666';
+
+reset role;
+
+-- =============================================================================
+-- PART 4: the actual acceptance check -- zero rows remaining across
+-- every FK-derived table/column from PART 0, zero storage objects, no
+-- auth.users row, and B completely untouched.
+-- =============================================================================
+do $$
+declare
+  v_row record;
+  v_leftover text[] := '{}';
+  v_count bigint;
+begin
+  for v_row in
+    select conrelid::regclass::text as table_name, a.attname as column_name
+    from pg_constraint c
+    join pg_attribute a on a.attrelid = c.conrelid and a.attnum = any(c.conkey)
+    where c.contype = 'f' and c.confrelid = 'public.profiles'::regclass
+  loop
+    execute format(
+      'select count(*) from %s where %I = $1',
+      v_row.table_name, v_row.column_name
+    ) into v_count using '66666666-6666-6666-6666-666666666666'::uuid;
+    if v_count > 0 then
+      v_leftover := v_leftover || format('%s.%s (%s row(s))', v_row.table_name, v_row.column_name, v_count);
+    end if;
+  end loop;
+  assert array_length(v_leftover, 1) is null,
+    format('rows still reference deleted user A after deletion: %s', v_leftover);
+end $$;
+
+do $$
+declare n int;
+begin
+  select count(*) into n from profiles where id = '66666666-6666-6666-6666-666666666666';
+  assert n = 0, 'A''s profile row should be gone';
+
+  select count(*) into n from auth.users where id = '66666666-6666-6666-6666-666666666666';
+  assert n = 0, 'A''s auth.users row should be gone -- an orphaned auth record blocks reusing the email';
+
+  select count(*) into n from storage.objects where owner_id = '66666666-6666-6666-6666-666666666666';
+  assert n = 0, 'A''s storage objects should be gone';
+
+  select count(*) into n from storage.objects where name like '66666666-6666-6666-6666-666666666666/%';
+  assert n = 0, 'A''s storage objects (by path prefix) should be gone';
+
+  -- The email is genuinely free to reuse -- nothing in auth.users or
+  -- profiles still claims it.
+  select count(*) into n from auth.users where email = 'del-a@example.com';
+  assert n = 0, 'A''s email should be free to reuse';
+end $$;
+
+-- B: untouched. Not just "still exists" -- the exact rows and values
+-- from PART 1, confirming deletion never reached past what it should.
+do $$
+declare n int; v_owner uuid; v_invited_by uuid;
+begin
+  select count(*) into n from profiles where id = '77777777-7777-7777-7777-777777777777';
+  assert n = 1, 'B''s profile should be untouched';
+
+  select count(*) into n from pots where id = 'b0000000-0000-0000-0000-0000000000b0';
+  assert n = 1, 'B''s pot should be untouched';
+
+  select count(*) into n from goals where id = 'b0000000-0000-0000-0000-0000000000b1';
+  assert n = 1, 'B''s goal should be untouched';
+
+  -- The task A used to own on B's goal: still exists, now B's.
+  select owner_id into v_owner from tasks where id = 'b0000000-0000-0000-0000-0000000000b3';
+  assert v_owner = '77777777-7777-7777-7777-777777777777', 'B''s goal''s task should survive, reassigned to B';
+
+  -- goal_participants: A's own row (user_id = A) is gone via CASCADE;
+  -- B's own participation isn't affected at all (B never participated
+  -- in their own goal via goal_participants -- ownership is via
+  -- goals.owner_id, not this table).
+  select count(*) into n from goal_participants where id = 'b0000000-0000-0000-0000-0000000000b2';
+  assert n = 0, 'A''s participant row on B''s goal should be gone (goal_participants.user_id is CASCADE)';
+
+  -- The invitation A sent to B: gone via CASCADE (inviter_id), which
+  -- is correct and expected -- not a leak, just confirming the shape.
+  select count(*) into n from invitations where id = 'b0000000-0000-0000-0000-0000000000b5';
+  assert n = 0, 'A''s invitation to B should be gone along with A (inviter_id is CASCADE)';
+end $$;
+
+reset role;
+rollback;
+
+select 'DELETION VERIFIED' as result;

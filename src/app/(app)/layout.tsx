@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { Sidebar } from "@/components/app-shell/sidebar";
 import { MobileHeader } from "@/components/app-shell/mobile-header";
 import { TabBar } from "@/components/app-shell/tab-bar";
+import { DeletionBanner } from "@/components/app-shell/deletion-banner";
 import { createClient } from "@/lib/supabase/server";
 
 // The shell around every authenticated route. Server component — the
@@ -26,7 +27,11 @@ export default async function AppLayout({
 
   const { data: profile, error: profileError } = await supabase
     .from("profiles")
-    .select("display_name")
+    // P9.1: deletion_requested_at rides along on the same query this
+    // layout already runs on every page, rather than a second fetch —
+    // the banner below needs it on every page too, for the same reason
+    // display_name already does.
+    .select("display_name, deletion_requested_at")
     .eq("id", auth.claims.sub)
     .single();
   // .single() sets error for *both* "no row" (PGRST116 — a real new
@@ -78,6 +83,11 @@ export default async function AppLayout({
           inboxMessages={inboxMessages}
         />
         <main className="flex-1 pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-0">
+          {profile.deletion_requested_at && (
+            <DeletionBanner
+              deletionRequestedAt={profile.deletion_requested_at}
+            />
+          )}
           {children}
         </main>
       </div>
