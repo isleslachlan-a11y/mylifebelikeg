@@ -20,6 +20,15 @@ export function friendlyAuthError(error: AuthError): string {
       return "Too many attempts — wait a moment and try again.";
     case "email_address_invalid":
       return "That doesn't look like a valid email address.";
+    case "same_password":
+      return "That's already your password — choose a different one.";
+    // otp_expired: a used or stale recovery/confirmation link.
+    // bad_code_verifier: the PKCE code didn't match (usually the same
+    // underlying cause — a link opened a second time, or in a
+    // different browser than the one that requested it).
+    case "otp_expired":
+    case "bad_code_verifier":
+      return "This link has expired or already been used. Request a new one.";
     default:
       return "Something went wrong. Please try again.";
   }
