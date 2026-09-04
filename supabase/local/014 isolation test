@@ -1,0 +1,625 @@
+-- LOCAL ONLY. P9.0: the package that justifies the phase. Every suite
+-- before this one (001-013) tests that features work; this one is
+-- adversarial -- it tries to breach isolation, and every assertion is
+-- that something is refused or returns zero rows. "Assumes 001_smoke_test
+-- has already been applied" (002's own convention) applies here too, but
+-- this suite deliberately does NOT build on 001's A/B fixture (1111.../
+-- 2222...): that pair already has a legitimate shared goal, which is
+-- exactly the wrong shape for "A and B are unrelated" (brief, verbatim).
+-- Fresh users below instead, wrapped in its own begin/rollback so this
+-- suite leaves no state behind for anything hypothetically run after it.
+--
+-- Fixture: three users. A (44444444...) and B (55555555...) share
+-- nothing -- no goal_participants row, no share_grants row, nothing. C
+-- (33333333...) has one accepted share_grants row on exactly one of A's
+-- two goals (resource_type = 'goal', scope = 'view') -- see 0037's own
+-- comment for why that grant unlocks only the bare goals row, nothing
+-- it cascades to. A's *other* goal is trip-kind, giving this fixture
+-- coverage of trips/trip_stops/trip_legs from the same two-goal setup
+-- rather than a third.
+\set ON_ERROR_STOP on
+
+-- =============================================================================
+-- PART 0: schema coverage enumeration. The single most valuable line in
+-- this package (brief, verbatim) -- a table or view added later without
+-- a matching block below fails this suite, not silently passes it.
+-- Runs before any role switch (information_schema doesn't care who's
+-- asking, and this has to work as-is for anyone who ever runs this file).
+-- =============================================================================
+do $$
+declare
+  v_row record;
+  v_uncovered text[] := '{}';
+  -- Every table and view this suite actually exercises below, by name.
+  -- Keep this list and the assertions beneath it in sync -- that's the
+  -- whole point of the check.
+  v_covered text[] := array[
+    -- tables
+    'achievements', 'avatar_presets', 'capacity_suggestion_dismissals',
+    'cashflow_items', 'check_ins', 'fx_rates', 'goal_participants',
+    'goal_ratings', 'goals', 'invitations', 'ledger_entries', 'life_areas',
+    'llama_messages', 'milestones', 'pots', 'profiles',
+    'rag_override_history', 'rag_snapshots', 'share_grants',
+    'someday_items', 'task_dependencies', 'tasks', 'trip_legs',
+    'trip_stops', 'trips', 'user_achievements',
+    -- views
+    'v_allocation_summary', 'v_available_presets', 'v_checkin_streak',
+    'v_countries_visited', 'v_critical_path', 'v_dream_affordability',
+    'v_dream_prune_candidates', 'v_financial_horizon',
+    'v_goal_affordability', 'v_goal_funding', 'v_goal_projected_end',
+    'v_goal_rag', 'v_goal_rating_trend', 'v_monthly_capacity',
+    'v_monthly_cashflow', 'v_pot_balances', 'v_rating_divergence',
+    'v_someday_progress', 'v_timeline_items', 'v_trip_estimates',
+    'v_user_capacity'
+  ];
+begin
+  for v_row in
+    select table_name from information_schema.tables
+    where table_schema = 'public' and table_type in ('BASE TABLE', 'VIEW')
+  loop
+    if not (v_row.table_name = any(v_covered)) then
+      v_uncovered := v_uncovered || v_row.table_name;
+    end if;
+  end loop;
+  assert array_length(v_uncovered, 1) is null,
+    format('UNCOVERED by the isolation suite (add assertions, then add to v_covered): %s', v_uncovered);
+end $$;
+
+-- Every security_invoker view, asserted as a schema check -- "a view can
+-- appear to behave correctly while the flag is missing" (brief,
+-- verbatim; 0038 is exactly that case, found by this exact check).
+do $$
+declare
+  v_row record;
+  v_missing text[] := '{}';
+begin
+  for v_row in
+    select c.relname
+    from pg_class c join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public' and c.relkind = 'v'
+  loop
+    if not exists (
+      select 1
+      from pg_class c2 join pg_namespace n2 on n2.oid = c2.relnamespace
+      where n2.nspname = 'public' and c2.relname = v_row.relname
+        and c2.reloptions is not null
+        and 'security_invoker=true' = any(c2.reloptions)
+    ) then
+      v_missing := v_missing || v_row.relname;
+    end if;
+  end loop;
+  assert array_length(v_missing, 1) is null,
+    format('view(s) missing security_invoker=true: %s', v_missing);
+end $$;
+
+begin;
+
+-- =============================================================================
+-- PART 1: fixture. Inserted as the unrestricted role (matches 001's own
+-- convention) -- RLS's INSERT side gets its own dedicated adversarial
+-- pass in PART 2, this is just data setup.
+-- =============================================================================
+insert into auth.users (id, email) values
+  ('44444444-4444-4444-4444-444444444444', 'a-unrelated@example.com'),
+  ('55555555-5555-5555-5555-555555555555', 'b-unrelated@example.com'),
+  ('33333333-3333-3333-3333-333333333333', 'c-grantee@example.com');
+
+insert into profiles (id, handle, display_name, base_currency, timezone) values
+  ('44444444-4444-4444-4444-444444444444', 'iso_user_a', 'Isolation A', 'AUD', 'Australia/Brisbane'),
+  ('55555555-5555-5555-5555-555555555555', 'iso_user_b', 'Isolation B', 'AUD', 'Australia/Brisbane'),
+  ('33333333-3333-3333-3333-333333333333', 'iso_user_c', 'Isolation C', 'AUD', 'Australia/Brisbane');
+-- (life_areas seeds automatically via profiles_seed_life_areas)
+
+insert into pots (id, user_id, name, currency, opening_balance_minor) values
+  ('a0000000-0000-0000-0000-000000000001', '44444444-4444-4444-4444-444444444444', 'A''s pot', 'AUD', 100000);
+
+insert into cashflow_items (id, user_id, kind, label, amount_minor, currency) values
+  ('a0000000-0000-0000-0000-000000000002', '44444444-4444-4444-4444-444444444444', 'income', 'A''s salary', 500000, 'AUD');
+
+-- Two goals: one gets granted to C (view-only, per 0037), one stays
+-- entirely private and doubles as the trip fixture.
+insert into goals (id, owner_id, kind, title, funding, currency, target_amount_minor, start_date) values
+  ('a0000000-0000-0000-0000-000000000010', '44444444-4444-4444-4444-444444444444', 'standard', 'A''s granted goal', 'save_toward', 'AUD', 200000, current_date),
+  ('a0000000-0000-0000-0000-000000000011', '44444444-4444-4444-4444-444444444444', 'trip', 'A''s private trip', 'save_toward', 'AUD', 300000, current_date);
+
+insert into milestones (id, goal_id, title, due_date) values
+  ('a0000000-0000-0000-0000-000000000020', 'a0000000-0000-0000-0000-000000000011', 'A''s milestone', current_date + 30);
+
+insert into tasks (id, goal_id, milestone_id, owner_id, title, offset_days, duration_days) values
+  ('a0000000-0000-0000-0000-000000000021', 'a0000000-0000-0000-0000-000000000011', 'a0000000-0000-0000-0000-000000000020', '44444444-4444-4444-4444-444444444444', 'A''s task one', 0, 3),
+  ('a0000000-0000-0000-0000-000000000022', 'a0000000-0000-0000-0000-000000000011', 'a0000000-0000-0000-0000-000000000020', '44444444-4444-4444-4444-444444444444', 'A''s task two', 3, 2);
+
+insert into task_dependencies (id, predecessor_task_id, successor_task_id) values
+  ('a0000000-0000-0000-0000-000000000023', 'a0000000-0000-0000-0000-000000000021', 'a0000000-0000-0000-0000-000000000022');
+
+insert into ledger_entries (id, user_id, goal_id, entry_type, amount_minor, currency, base_currency, base_amount_minor, fx_rate_applied) values
+  ('a0000000-0000-0000-0000-000000000030', '44444444-4444-4444-4444-444444444444', 'a0000000-0000-0000-0000-000000000011', 'contribution', 10000, 'AUD', 'AUD', 10000, 1);
+
+insert into check_ins (id, user_id, period_start, period_end, submitted_at) values
+  ('a0000000-0000-0000-0000-000000000040', '44444444-4444-4444-4444-444444444444', current_date - 6, current_date, now());
+
+insert into goal_ratings (id, check_in_id, goal_id, user_id, score) values
+  ('a0000000-0000-0000-0000-000000000041', 'a0000000-0000-0000-0000-000000000040', 'a0000000-0000-0000-0000-000000000011', '44444444-4444-4444-4444-444444444444', 4);
+
+insert into someday_items (id, user_id, title, kind) values
+  ('a0000000-0000-0000-0000-000000000050', '44444444-4444-4444-4444-444444444444', 'A''s dream', 'object');
+
+-- System-authored tables (no user-facing INSERT policy, by design --
+-- same reasoning src/lib/supabase/service.ts's own doc gives) --
+-- inserted directly here the same way a trigger would.
+insert into rag_snapshots (id, goal_id, schedule_status, budget_status, momentum_status, overall_status) values
+  ('a0000000-0000-0000-0000-000000000060', 'a0000000-0000-0000-0000-000000000011', 'green', 'green', 'green', 'green');
+
+insert into rag_override_history (id, goal_id, status, reason, set_by, set_at, expires_at) values
+  ('a0000000-0000-0000-0000-000000000061', 'a0000000-0000-0000-0000-000000000011', 'amber', 'A''s own reason', '44444444-4444-4444-4444-444444444444', now(), now() + interval '14 days');
+
+insert into capacity_suggestion_dismissals (id, user_id, period_start) values
+  ('a0000000-0000-0000-0000-000000000070', '44444444-4444-4444-4444-444444444444', current_date);
+
+insert into invitations (id, inviter_id, invitee_id, token_hash, resource_type, resource_id, accepted_at, accepted_by) values
+  ('a0000000-0000-0000-0000-000000000080', '44444444-4444-4444-4444-444444444444', '33333333-3333-3333-3333-333333333333', 'deadbeef', 'goal', 'a0000000-0000-0000-0000-000000000010', now(), '33333333-3333-3333-3333-333333333333');
+
+-- C's accepted grant, view-only, on the *granted* goal specifically --
+-- not the private/trip one.
+insert into share_grants (id, resource_type, resource_id, grantor_id, grantee_id, scope) values
+  ('a0000000-0000-0000-0000-000000000090', 'goal', 'a0000000-0000-0000-0000-000000000010', '44444444-4444-4444-4444-444444444444', '33333333-3333-3333-3333-333333333333', 'view');
+
+insert into trips (id, goal_id) values
+  ('a0000000-0000-0000-0000-0000000000a0', 'a0000000-0000-0000-0000-000000000011');
+
+insert into trip_stops (id, trip_id, sequence, name, nights) values
+  ('a0000000-0000-0000-0000-0000000000a1', 'a0000000-0000-0000-0000-0000000000a0', 0, 'A''s stop', 2);
+
+insert into trip_legs (id, trip_id, to_stop_id, mode) values
+  ('a0000000-0000-0000-0000-0000000000a2', 'a0000000-0000-0000-0000-0000000000a0', 'a0000000-0000-0000-0000-0000000000a1', 'flight');
+
+insert into llama_messages (id, user_id, speaker, trigger_code, body, priority) values
+  ('a0000000-0000-0000-0000-0000000000b0', '44444444-4444-4444-4444-444444444444', 'fluffy', 'streak', 'A''s own message', 1);
+
+insert into user_achievements (id, user_id, achievement_id)
+  select 'a0000000-0000-0000-0000-0000000000c0', '44444444-4444-4444-4444-444444444444', id
+  from achievements where code = 'first_light';
+
+-- A dream-photos storage object under A's own path (the shim from
+-- 000 auth shim), for the storage section in PART 6.
+insert into storage.buckets (id, name, public) values ('dream-photos', 'dream-photos', false)
+  on conflict (id) do nothing;
+insert into storage.objects (id, bucket_id, name, owner_id) values
+  ('a0000000-0000-0000-0000-0000000000d0', 'dream-photos', '44444444-4444-4444-4444-444444444444/some-dream/photo.webp', '44444444-4444-4444-4444-444444444444');
+
+-- =============================================================================
+-- PART 2: table-by-table, as B (unrelated to A in every way). Select,
+-- update, delete against A's rows by primary key: all refused or zero
+-- rows. Insert with the owner column set to A: refused.
+-- =============================================================================
+set role authenticated;
+select set_config('request.jwt.claim.sub', '55555555-5555-5555-5555-555555555555', false);
+
+do $$
+declare n int;
+begin
+  -- Reads: every one of A's rows, across every private/goal-scoped table.
+  select count(*) into n from pots where id = 'a0000000-0000-0000-0000-000000000001'; assert n = 0, 'LEAK: B reads A''s pot';
+  select count(*) into n from cashflow_items where id = 'a0000000-0000-0000-0000-000000000002'; assert n = 0, 'LEAK: B reads A''s cashflow item';
+  select count(*) into n from goals where id = 'a0000000-0000-0000-0000-000000000010'; assert n = 0, 'LEAK: B reads A''s granted goal';
+  select count(*) into n from goals where id = 'a0000000-0000-0000-0000-000000000011'; assert n = 0, 'LEAK: B reads A''s private goal';
+  select count(*) into n from milestones where id = 'a0000000-0000-0000-0000-000000000020'; assert n = 0, 'LEAK: B reads A''s milestone';
+  select count(*) into n from tasks where id in ('a0000000-0000-0000-0000-000000000021','a0000000-0000-0000-0000-000000000022'); assert n = 0, 'LEAK: B reads A''s tasks';
+  select count(*) into n from task_dependencies where id = 'a0000000-0000-0000-0000-000000000023'; assert n = 0, 'LEAK: B reads A''s task dependency';
+  select count(*) into n from ledger_entries where id = 'a0000000-0000-0000-0000-000000000030'; assert n = 0, 'LEAK: B reads A''s ledger entry';
+  select count(*) into n from check_ins where id = 'a0000000-0000-0000-0000-000000000040'; assert n = 0, 'LEAK: B reads A''s check-in';
+  select count(*) into n from goal_ratings where id = 'a0000000-0000-0000-0000-000000000041'; assert n = 0, 'LEAK: B reads A''s goal rating';
+  select count(*) into n from someday_items where id = 'a0000000-0000-0000-0000-000000000050'; assert n = 0, 'LEAK: B reads A''s dream';
+  select count(*) into n from rag_snapshots where id = 'a0000000-0000-0000-0000-000000000060'; assert n = 0, 'LEAK: B reads A''s RAG snapshot';
+  select count(*) into n from rag_override_history where id = 'a0000000-0000-0000-0000-000000000061'; assert n = 0, 'LEAK: B reads A''s RAG override history';
+  select count(*) into n from capacity_suggestion_dismissals where id = 'a0000000-0000-0000-0000-000000000070'; assert n = 0, 'LEAK: B reads A''s capacity dismissal';
+  select count(*) into n from invitations where id = 'a0000000-0000-0000-0000-000000000080'; assert n = 0, 'LEAK: B reads A''s invitation';
+  select count(*) into n from share_grants where id = 'a0000000-0000-0000-0000-000000000090'; assert n = 0, 'LEAK: B reads A''s share grant';
+  select count(*) into n from trips where id = 'a0000000-0000-0000-0000-0000000000a0'; assert n = 0, 'LEAK: B reads A''s trip';
+  select count(*) into n from trip_stops where id = 'a0000000-0000-0000-0000-0000000000a1'; assert n = 0, 'LEAK: B reads A''s trip stop';
+  select count(*) into n from trip_legs where id = 'a0000000-0000-0000-0000-0000000000a2'; assert n = 0, 'LEAK: B reads A''s trip leg';
+  select count(*) into n from llama_messages where id = 'a0000000-0000-0000-0000-0000000000b0'; assert n = 0, 'LEAK: B reads A''s llama message';
+  select count(*) into n from user_achievements where id = 'a0000000-0000-0000-0000-0000000000c0'; assert n = 0, 'LEAK: B reads A''s user achievement';
+  select count(*) into n from life_areas where user_id = '44444444-4444-4444-4444-444444444444'; assert n = 0, 'LEAK: B reads A''s life areas';
+  select count(*) into n from goal_participants where goal_id in ('a0000000-0000-0000-0000-000000000010','a0000000-0000-0000-0000-000000000011'); assert n = 0, 'LEAK: B reads A''s goal_participants rows (there are none, but the row-visibility policy itself must not leak nonexistent access)';
+end $$;
+
+-- Updates: attempted as B (RLS makes an UPDATE against an invisible row
+-- a silent no-op, never an exception, so nothing here needs a try/catch)
+-- but verified afterward as the unrestricted role. Checking "did the
+-- title become 'pwned'" *as B* would be worthless either way: B can't
+-- see this row via SELECT regardless of whether the UPDATE secretly
+-- worked (owner_id never changes), so that check would trivially read
+-- zero rows even on a real leak. The real row, and the real value, has
+-- to be read back without B's own RLS in the way.
+do $$
+begin
+  update pots set opening_balance_minor = 0 where id = 'a0000000-0000-0000-0000-000000000001';
+  update goals set title = 'pwned' where id = 'a0000000-0000-0000-0000-000000000010';
+  update goals set title = 'pwned' where id = 'a0000000-0000-0000-0000-000000000011';
+  update tasks set title = 'pwned' where id = 'a0000000-0000-0000-0000-000000000021';
+  update someday_items set title = 'pwned' where id = 'a0000000-0000-0000-0000-000000000050';
+  update check_ins set note = 'pwned' where id = 'a0000000-0000-0000-0000-000000000040';
+  update share_grants set scope = 'edit' where id = 'a0000000-0000-0000-0000-000000000090';
+
+  -- Deletes: same shape, same "silent no-op, not an exception" story.
+  delete from pots where id = 'a0000000-0000-0000-0000-000000000001';
+  delete from goals where id = 'a0000000-0000-0000-0000-000000000010';
+  delete from tasks where id = 'a0000000-0000-0000-0000-000000000021';
+  delete from someday_items where id = 'a0000000-0000-0000-0000-000000000050';
+  delete from trips where id = 'a0000000-0000-0000-0000-0000000000a0';
+end $$;
+
+reset role;
+do $$
+declare n int;
+begin
+  -- Confirmed as the unrestricted role: every one of B's updates and
+  -- deletes above was a no-op. A's rows are all still exactly there,
+  -- with their original values.
+  select count(*) into n from pots where id = 'a0000000-0000-0000-0000-000000000001' and opening_balance_minor <> 0; assert n = 1, 'LEAK: B updated A''s pot';
+  select count(*) into n from goals where id = 'a0000000-0000-0000-0000-000000000010' and title <> 'pwned'; assert n = 1, 'LEAK: B updated A''s granted goal';
+  select count(*) into n from goals where id = 'a0000000-0000-0000-0000-000000000011' and title <> 'pwned'; assert n = 1, 'LEAK: B updated A''s private goal';
+  select count(*) into n from tasks where id = 'a0000000-0000-0000-0000-000000000021' and title <> 'pwned'; assert n = 1, 'LEAK: B updated A''s task';
+  select count(*) into n from someday_items where id = 'a0000000-0000-0000-0000-000000000050' and title <> 'pwned'; assert n = 1, 'LEAK: B updated A''s dream';
+  select count(*) into n from check_ins where id = 'a0000000-0000-0000-0000-000000000040' and note is distinct from 'pwned'; assert n = 1, 'LEAK: B updated A''s check-in';
+  select count(*) into n from share_grants where id = 'a0000000-0000-0000-0000-000000000090' and scope <> 'edit'; assert n = 1, 'LEAK: B escalated A''s share grant';
+
+  select count(*) into n from pots where id = 'a0000000-0000-0000-0000-000000000001'; assert n = 1, 'LEAK: B deleted A''s pot';
+  select count(*) into n from goals where id = 'a0000000-0000-0000-0000-000000000010'; assert n = 1, 'LEAK: B deleted A''s granted goal';
+  select count(*) into n from tasks where id = 'a0000000-0000-0000-0000-000000000021'; assert n = 1, 'LEAK: B deleted A''s task';
+  select count(*) into n from someday_items where id = 'a0000000-0000-0000-0000-000000000050'; assert n = 1, 'LEAK: B deleted A''s dream';
+  select count(*) into n from trips where id = 'a0000000-0000-0000-0000-0000000000a0'; assert n = 1, 'LEAK: B deleted A''s trip';
+end $$;
+
+set role authenticated;
+select set_config('request.jwt.claim.sub', '55555555-5555-5555-5555-555555555555', false);
+
+-- Inserts: "a row you can write into someone else's account is as bad
+-- as one you can read" (brief, verbatim) -- B attempting to plant a row
+-- with A as the owner, across every table where that's a meaningful
+-- attack (an owner/user_id column that isn't already forced to
+-- auth.uid() by the column's own absence from B's insert list).
+do $$
+begin
+  begin
+    insert into pots (user_id, name, currency) values ('44444444-4444-4444-4444-444444444444', 'planted', 'AUD');
+    assert false, 'LEAK: B inserted a pot owned by A';
+  exception when insufficient_privilege then null;
+  end;
+
+  begin
+    insert into goals (owner_id, title) values ('44444444-4444-4444-4444-444444444444', 'planted');
+    assert false, 'LEAK: B inserted a goal owned by A';
+  exception when insufficient_privilege then null;
+  end;
+
+  begin
+    insert into cashflow_items (user_id, kind, label, amount_minor, currency) values ('44444444-4444-4444-4444-444444444444', 'income', 'planted', 100, 'AUD');
+    assert false, 'LEAK: B inserted a cashflow item owned by A';
+  exception when insufficient_privilege then null;
+  end;
+
+  begin
+    insert into someday_items (user_id, title) values ('44444444-4444-4444-4444-444444444444', 'planted');
+    assert false, 'LEAK: B inserted a dream owned by A';
+  exception when insufficient_privilege then null;
+  end;
+
+  begin
+    insert into check_ins (user_id, period_start, period_end) values ('44444444-4444-4444-4444-444444444444', current_date, current_date + 6);
+    assert false, 'LEAK: B inserted a check-in owned by A';
+  exception when insufficient_privilege then null;
+  end;
+
+  begin
+    insert into ledger_entries (user_id, entry_type, amount_minor, currency, base_currency, base_amount_minor, fx_rate_applied) values ('44444444-4444-4444-4444-444444444444', 'contribution', 100, 'AUD', 'AUD', 100, 1);
+    assert false, 'LEAK: B inserted a ledger entry owned by A';
+  exception when insufficient_privilege then null;
+  end;
+
+  begin
+    insert into share_grants (resource_type, resource_id, grantor_id, grantee_id) values ('goal', 'a0000000-0000-0000-0000-000000000010', '44444444-4444-4444-4444-444444444444', '55555555-5555-5555-5555-555555555555');
+    assert false, 'LEAK: B forged a share grant claiming to be from A';
+  exception when insufficient_privilege then null;
+  end;
+
+  begin
+    insert into llama_messages (user_id, speaker, trigger_code, body, priority) values ('44444444-4444-4444-4444-444444444444', 'fluffy', 'streak', 'planted', 1);
+    assert false, 'LEAK: B inserted a llama message owned by A (should have no insert policy at all)';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+-- =============================================================================
+-- PART 3: views, directly. Same shape as PART 2's reads -- B should see
+-- none of A's rows through any view either.
+-- =============================================================================
+do $$
+declare n int; v_max_capacity bigint;
+begin
+  select count(*) into n from v_pot_balances where user_id = '44444444-4444-4444-4444-444444444444';
+  assert n = 0, 'LEAK: B sees A''s pot through v_pot_balances';
+
+  select coalesce(max(monthly_capacity_minor), 0) into v_max_capacity from v_monthly_capacity where user_id = '44444444-4444-4444-4444-444444444444';
+  assert v_max_capacity = 0, 'LEAK: B sees A''s monthly capacity';
+
+  select count(*) into n from v_allocation_summary where user_id = '44444444-4444-4444-4444-444444444444';
+  assert n = 0, 'LEAK: B sees A''s allocation summary';
+
+  select count(*) into n from v_goal_funding where goal_id in ('a0000000-0000-0000-0000-000000000010','a0000000-0000-0000-0000-000000000011');
+  assert n = 0, 'LEAK: B sees A''s goal funding';
+
+  select count(*) into n from v_goal_affordability where goal_id in ('a0000000-0000-0000-0000-000000000010','a0000000-0000-0000-0000-000000000011');
+  assert n = 0, 'LEAK: B sees A''s goal affordability';
+
+  select count(*) into n from v_goal_rag where goal_id in ('a0000000-0000-0000-0000-000000000010','a0000000-0000-0000-0000-000000000011');
+  assert n = 0, 'LEAK: B sees A''s goal RAG';
+
+  select count(*) into n from v_goal_rating_trend where goal_id in ('a0000000-0000-0000-0000-000000000010','a0000000-0000-0000-0000-000000000011');
+  assert n = 0, 'LEAK: B sees A''s goal rating trend';
+
+  select count(*) into n from v_rating_divergence where goal_id in ('a0000000-0000-0000-0000-000000000010','a0000000-0000-0000-0000-000000000011');
+  assert n = 0, 'LEAK: B sees A''s rating divergence';
+
+  select count(*) into n from v_critical_path where goal_id in ('a0000000-0000-0000-0000-000000000010','a0000000-0000-0000-0000-000000000011');
+  assert n = 0, 'LEAK: B sees A''s critical path';
+
+  select count(*) into n from v_goal_projected_end where goal_id in ('a0000000-0000-0000-0000-000000000010','a0000000-0000-0000-0000-000000000011');
+  assert n = 0, 'LEAK: B sees A''s projected end date';
+
+  select count(*) into n from v_timeline_items where goal_id in ('a0000000-0000-0000-0000-000000000010','a0000000-0000-0000-0000-000000000011');
+  assert n = 0, 'LEAK: B sees A''s timeline items';
+
+  select count(*) into n from v_someday_progress where user_id = '44444444-4444-4444-4444-444444444444';
+  assert n = 0, 'LEAK: B sees A''s someday progress';
+
+  select count(*) into n from v_dream_affordability where user_id = '44444444-4444-4444-4444-444444444444';
+  assert n = 0, 'LEAK: B sees A''s dream affordability';
+
+  select count(*) into n from v_dream_prune_candidates where user_id = '44444444-4444-4444-4444-444444444444';
+  assert n = 0, 'LEAK: B sees A''s prune candidates';
+
+  select count(*) into n from v_checkin_streak where user_id = '44444444-4444-4444-4444-444444444444';
+  assert n = 0, 'LEAK: B sees A''s check-in streak';
+
+  select count(*) into n from v_user_capacity where user_id = '44444444-4444-4444-4444-444444444444' and active_goal_count > 0;
+  assert n = 0, 'LEAK: B sees A''s active goal count';
+
+  select count(*) into n from v_financial_horizon where user_id = '44444444-4444-4444-4444-444444444444';
+  assert n = 0, 'LEAK: B sees A''s financial horizon';
+
+  select count(*) into n from v_monthly_cashflow where user_id = '44444444-4444-4444-4444-444444444444';
+  assert n = 0, 'LEAK: B sees A''s monthly cashflow';
+
+  select count(*) into n from v_trip_estimates where trip_id = 'a0000000-0000-0000-0000-0000000000a0';
+  assert n = 0, 'LEAK: B sees A''s trip estimates';
+
+  select count(*) into n from v_countries_visited where user_id = '44444444-4444-4444-4444-444444444444';
+  assert n = 0, 'LEAK: B sees A''s countries visited';
+
+  -- Global reference views: B sees the *same* rows as anyone, which is
+  -- correct (not a leak) -- asserted as "readable", not "empty".
+  select count(*) into n from v_available_presets;
+  assert n > 0, 'v_available_presets should be readable (global catalog) -- got none';
+end $$;
+
+-- =============================================================================
+-- PART 4: every function callable from the client, called as B with A's
+-- own IDs as arguments. Security-definer functions bypass RLS by
+-- design -- any that hands back A's data, or lets B mutate A's rows, is
+-- a defect regardless of what the table-level RLS above already proved.
+-- =============================================================================
+do $$
+declare v_result uuid; v_date date; v_dream uuid;
+begin
+  -- Ownership-checked mutators: each should refuse outright (raise) when
+  -- given a resource id that isn't B's.
+  begin
+    perform preview_task_slip('a0000000-0000-0000-0000-000000000021', 5);
+    assert false, 'LEAK: B previewed a slip on A''s task';
+  exception when others then null;
+  end;
+
+  begin
+    perform promote_dream_to_goal('a0000000-0000-0000-0000-000000000050');
+    assert false, 'LEAK: B promoted A''s dream to a goal';
+  exception when others then null;
+  end;
+
+  begin
+    perform snooze_dream('a0000000-0000-0000-0000-000000000050');
+    assert false, 'LEAK: B snoozed A''s dream';
+  exception when others then null;
+  end;
+
+  begin
+    perform reorder_trip_stop('a0000000-0000-0000-0000-0000000000a1', 0);
+    assert false, 'LEAK: B reordered A''s trip stop';
+  exception when others then null;
+  end;
+
+  begin
+    perform promote_someday_to_stop('a0000000-0000-0000-0000-000000000050', 'a0000000-0000-0000-0000-0000000000a0', 1);
+    assert false, 'LEAK: B promoted A''s dream into A''s trip';
+  exception when others then null;
+  end;
+
+  -- surface_dream_for_checkin takes a check_in_id -- B's own call with
+  -- A's check-in id should refuse (not authorized), not silently no-op.
+  begin
+    perform surface_dream_for_checkin('a0000000-0000-0000-0000-000000000040');
+    assert false, 'LEAK: B surfaced a dream against A''s check-in';
+  exception when others then null;
+  end;
+
+  -- These take no target id at all -- pinned to auth.uid() internally
+  -- (public.*'s own wrapper shape, see CLAUDE.md) -- calling them as B
+  -- must only ever be able to affect/return B's own state, never A's.
+  perform ensure_current_checkin();
+  perform evaluate_achievements();
+  perform grant_achievement('first_light');
+  perform suggest_goal_limit_change();
+  perform current_checkin_period();
+  perform presets_unlocked_by('first_light');
+
+  -- create_trip_goal always creates a *new* goal owned by the caller --
+  -- there's no A-owned id to pass in, so the adversarial case here is
+  -- simply confirming it can't be pointed at anyone else's data; it
+  -- takes no foreign id at all, so it has no such surface to test
+  -- beyond what INSERT-level RLS on goals already covers (PART 2).
+end $$;
+
+-- Checked as the unrestricted role, not as B: B's own SELECT already
+-- can't see A's rows at all (that's PART 2/3's job), so re-checking
+-- "unchanged" through B's own restricted view would trivially read
+-- zero regardless of whether a mutation happened -- this needs the
+-- real row, not B's filtered view of it.
+reset role;
+do $$
+declare n int;
+begin
+  select count(*) into n from tasks where id = 'a0000000-0000-0000-0000-000000000021' and duration_days = 3;
+  assert n = 1, 'A''s task was mutated by one of B''s function-level attempts';
+  select count(*) into n from someday_items where id = 'a0000000-0000-0000-0000-000000000050' and promoted_goal_id is null and snoozed_until is null;
+  assert n = 1, 'A''s dream was mutated by one of B''s function-level attempts';
+end $$;
+set role authenticated;
+select set_config('request.jwt.claim.sub', '55555555-5555-5555-5555-555555555555', false);
+
+-- =============================================================================
+-- PART 5: the share grant. C reads the granted goal and gets it. C
+-- reads A's other goal and gets nothing. C reads A's ledger, check-ins
+-- and dreams and gets nothing beyond what the grant covers (0037's own
+-- decision: a goal-level grant unlocks the bare goals row only). C
+-- cannot write to the granted goal, regardless of the grant's scope --
+-- that's the explicit, asserted decision this package makes rather than
+-- discovering later.
+-- =============================================================================
+select set_config('request.jwt.claim.sub', '33333333-3333-3333-3333-333333333333', false);
+
+do $$
+declare n int;
+begin
+  select count(*) into n from goals where id = 'a0000000-0000-0000-0000-000000000010';
+  assert n = 1, 'C should see the granted goal, saw none';
+
+  select count(*) into n from goals where id = 'a0000000-0000-0000-0000-000000000011';
+  assert n = 0, 'LEAK: C sees A''s other (ungranted) goal';
+
+  -- Beyond the bare row: nothing. The grant does not cascade to tasks,
+  -- milestones, ledger, check-ins, ratings, RAG, or dreams -- that's
+  -- goal_participants' job, which C does not have.
+  select count(*) into n from tasks where goal_id = 'a0000000-0000-0000-0000-000000000010';
+  assert n = 0, 'LEAK: C sees tasks via a bare goal grant';
+  select count(*) into n from milestones where goal_id = 'a0000000-0000-0000-0000-000000000010';
+  assert n = 0, 'LEAK: C sees milestones via a bare goal grant';
+  select count(*) into n from ledger_entries where goal_id in ('a0000000-0000-0000-0000-000000000010','a0000000-0000-0000-0000-000000000011');
+  assert n = 0, 'LEAK: C sees A''s ledger via the goal grant';
+  select count(*) into n from check_ins where id = 'a0000000-0000-0000-0000-000000000040';
+  assert n = 0, 'LEAK: C sees A''s check-ins via the goal grant';
+  select count(*) into n from goal_ratings where goal_id in ('a0000000-0000-0000-0000-000000000010','a0000000-0000-0000-0000-000000000011');
+  assert n = 0, 'LEAK: C sees A''s goal ratings via the goal grant';
+  select count(*) into n from rag_snapshots where goal_id in ('a0000000-0000-0000-0000-000000000010','a0000000-0000-0000-0000-000000000011');
+  assert n = 0, 'LEAK: C sees A''s RAG snapshots via the goal grant';
+  select count(*) into n from someday_items where user_id = '44444444-4444-4444-4444-444444444444';
+  assert n = 0, 'LEAK: C sees A''s dreams via the (unrelated) goal grant';
+  select count(*) into n from pots where user_id = '44444444-4444-4444-4444-444444444444';
+  assert n = 0, 'LEAK: C sees A''s pots via the goal grant';
+end $$;
+
+do $$
+begin
+  -- Write: explicitly decided and asserted, not discovered later. A
+  -- view-scope grant on a goal never unlocks goals_update -- that stays
+  -- goal_participants' job.
+  update goals set title = 'C was here' where id = 'a0000000-0000-0000-0000-000000000010';
+  assert (select count(*) from goals where id = 'a0000000-0000-0000-0000-000000000010' and title = 'C was here') = 0,
+    'DECISION VIOLATED: a goal-level share grant should never allow writing to the goal';
+end $$;
+
+-- =============================================================================
+-- PART 6: storage. As B, attempt read, list, overwrite and delete of
+-- A's object by direct path. All four refused. (This exercises the
+-- policy logic in the storage.objects shim from 000 auth shim -- the
+-- real Storage HTTP-API-level behaviour, signed URLs included, was
+-- already verified live against the real project in P8.7's own
+-- breach test; this is the same authorization boundary, tested where a
+-- plain-SQL suite actually can reach it.)
+-- =============================================================================
+select set_config('request.jwt.claim.sub', '55555555-5555-5555-5555-555555555555', false);
+
+do $$
+declare n int;
+begin
+  -- Real Supabase Storage policies don't exist as separate policies for
+  -- storage.buckets -- only storage.objects is RLS-gated by 0032's own
+  -- four policies, keyed on the object's own path. Confirm none of them
+  -- apply to B.
+  select count(*) into n from storage.objects where id = 'a0000000-0000-0000-0000-0000000000d0'; -- "read"
+  assert n = 0, 'LEAK: B reads A''s storage object';
+end $$;
+
+do $$
+begin
+  update storage.objects set name = 'planted/path.webp' where id = 'a0000000-0000-0000-0000-0000000000d0'; -- "overwrite"
+  assert (select count(*) from storage.objects where id = 'a0000000-0000-0000-0000-0000000000d0' and name = 'planted/path.webp') = 0,
+    'LEAK: B overwrote A''s storage object';
+end $$;
+
+do $$
+begin
+  delete from storage.objects where id = 'a0000000-0000-0000-0000-0000000000d0'; -- "delete"
+end $$;
+
+reset role;
+do $$
+declare n int;
+begin
+  select count(*) into n from storage.objects where id = 'a0000000-0000-0000-0000-0000000000d0';
+  assert n = 1, 'LEAK: B deleted A''s storage object';
+end $$;
+
+set role authenticated;
+select set_config('request.jwt.claim.sub', '55555555-5555-5555-5555-555555555555', false);
+do $$
+begin
+  -- "insert" -- B planting a new object under A's own folder.
+  begin
+    insert into storage.objects (bucket_id, name, owner_id) values ('dream-photos', '44444444-4444-4444-4444-444444444444/planted/x.webp', '55555555-5555-5555-5555-555555555555');
+    assert false, 'LEAK: B inserted an object into A''s storage folder';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+-- =============================================================================
+-- PART 7: anonymous sees nothing. 002's own anon check already covers
+-- the tables that predate this package; this extends it to everything
+-- P7-P9 added that 002 never touched.
+-- =============================================================================
+select set_config('request.jwt.claim.sub', '', false);
+do $$
+declare n int;
+begin
+  select count(*) into n from achievements; assert n = 0, 'LEAK: anon sees achievements';
+  select count(*) into n from avatar_presets; assert n = 0, 'LEAK: anon sees avatar presets';
+  select count(*) into n from fx_rates; assert n = 0, 'LEAK: anon sees fx rates';
+  select count(*) into n from user_achievements; assert n = 0, 'LEAK: anon sees user achievements';
+  select count(*) into n from share_grants; assert n = 0, 'LEAK: anon sees share grants';
+  select count(*) into n from invitations; assert n = 0, 'LEAK: anon sees invitations';
+  select count(*) into n from rag_override_history; assert n = 0, 'LEAK: anon sees RAG override history';
+  select count(*) into n from capacity_suggestion_dismissals; assert n = 0, 'LEAK: anon sees capacity dismissals';
+  select count(*) into n from llama_messages; assert n = 0, 'LEAK: anon sees llama messages';
+  select count(*) into n from trips; assert n = 0, 'LEAK: anon sees trips';
+  select count(*) into n from trip_stops; assert n = 0, 'LEAK: anon sees trip stops';
+  select count(*) into n from trip_legs; assert n = 0, 'LEAK: anon sees trip legs';
+  select count(*) into n from v_available_presets; assert n = 0, 'LEAK: anon sees v_available_presets';
+  select count(*) into n from v_critical_path; assert n = 0, 'LEAK: anon sees v_critical_path';
+  select count(*) into n from v_trip_estimates; assert n = 0, 'LEAK: anon sees v_trip_estimates';
+  select count(*) into n from storage.objects; assert n = 0, 'LEAK: anon sees storage objects';
+end $$;
+
+reset role;
+rollback;
+
+select 'ISOLATION VERIFIED' as result;

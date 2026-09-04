@@ -3,9 +3,20 @@
 -- Assumes 001_smoke_test.sql has already been applied.
 \set ON_ERROR_STOP on
 
--- Roles and grants now come from migration 0008_grants.sql.
--- This test deliberately performs NO grants of its own, so a failure here
--- means 0008 is incomplete.
+-- P9.0: roles (anon/authenticated/service_role) and the base grants on
+-- every table come from two places, neither of which is a numbered
+-- migration -- Supabase's platform manages both automatically on a real
+-- project, the same reason 000 auth shim creates the roles and
+-- 0008_baseline_schema.sql's own live-dump-derived GRANT statements
+-- cover the tables. (This comment used to say "migration
+-- 0008_grants.sql" -- that file never existed; 0008 turned out to be
+-- exactly the number the reconstructed baseline schema needed, once
+-- P9.0 built one, which is a coincidence worth noting so nobody goes
+-- looking for a grants-only migration that was never real.) This test
+-- still deliberately performs no *table*-level grants of its own beyond
+-- the two auth-schema ones below (needed only because `auth` itself
+-- isn't part of the baseline dump) -- a failure here past that point
+-- means the shim or the baseline is incomplete, not this test.
 grant usage on schema auth to authenticated;
 grant execute on function auth.uid() to authenticated;
 
