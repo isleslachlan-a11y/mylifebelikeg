@@ -32,3 +32,64 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  # P9.0: "the package that justifies the phase." A clean Postgres 17
+  # instance every run (never the live project) -- migrations replayed
+  # in numeric order from nothing, then every supabase/local/* suite,
+  # 000 through the isolation suite, in order. Any failure fails the
+  # job: a missing security_invoker, an uncovered table, a genuinely
+  # breached row -- all of it surfaces here, not after merge.
+  #
+  # Postgres 17, not 16: Schema.MD's own note (P5.5) already found the
+  # live schema uses a PG17-only privilege (GRANT ... MAINTAIN) that a
+  # 16 instance rejects outright -- this has to match what
+  # 0008_baseline_schema.sql was actually dumped from.
+  db-isolation:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: postgres
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Auth + storage shim (000 auth shim)
+        run: psql -v ON_ERROR_STOP=1 -f "supabase/local/000 auth shim"
+
+      - name: Replay every migration, in order, on a clean database
+        run: |
+          set -euo pipefail
+          for f in $(ls supabase/migrations/*.sql | sort -V); do
+            echo "::group::$f"
+            psql -v ON_ERROR_STOP=1 -f "$f"
+            echo "::endgroup::"
+          done
+
+      # Numeric prefix order, not filesystem order -- `sort -V` on the
+      # bare (space-separated, extensionless) filenames this directory
+      # actually uses, same convention supabase/local/*'s own headers
+      # ("Assumes 001_smoke_test.sql has already been applied") already
+      # assume a human running them would follow by hand.
+      - name: Run every local suite, in order (000 already ran above)
+        run: |
+          set -euo pipefail
+          for f in $(ls supabase/local/ | sort -V | grep -v "^000 "); do
+            echo "::group::$f"
+            psql -v ON_ERROR_STOP=1 -f "supabase/local/$f"
+            echo "::endgroup::"
+          done
