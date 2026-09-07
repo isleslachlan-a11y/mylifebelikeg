@@ -4,12 +4,13 @@ import { Sidebar } from "@/components/app-shell/sidebar";
 import { MobileHeader } from "@/components/app-shell/mobile-header";
 import { TabBar } from "@/components/app-shell/tab-bar";
 import { DeletionBanner } from "@/components/app-shell/deletion-banner";
+import { JumpMenu } from "@/components/app-shell/jump-menu";
 import { createClient } from "@/lib/supabase/server";
 
 // The shell around every authenticated route. Server component — the
 // only client pieces are the ones that genuinely need the browser: nav
-// active-state (needs the current pathname) and the mobile account menu
-// (needs open/closed state).
+// active-state (needs the current pathname), the More sheet and jump
+// menu (both need open/closed state).
 //
 // proxy.ts already redirects unauthenticated or profile-less requests
 // before they get here; this check is defense in depth, not the primary
@@ -78,10 +79,7 @@ export default async function AppLayout({
         inboxMessages={inboxMessages}
       />
       <div className="flex flex-1 flex-col">
-        <MobileHeader
-          displayName={profile.display_name}
-          inboxMessages={inboxMessages}
-        />
+        <MobileHeader inboxMessages={inboxMessages} />
         <main className="flex-1 pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-0">
           {profile.deletion_requested_at && (
             <DeletionBanner
@@ -91,7 +89,12 @@ export default async function AppLayout({
           {children}
         </main>
       </div>
-      <TabBar />
+      <TabBar displayName={profile.display_name} />
+      {/* P10.0: mounted once, here — the one shared instance every
+          JumpMenuTrigger (sidebar, mobile header) opens via a window
+          event rather than each rendering its own. See jump-menu.tsx's
+          own header for why. */}
+      <JumpMenu />
     </div>
   );
 }

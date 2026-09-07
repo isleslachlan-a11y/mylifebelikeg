@@ -7,6 +7,11 @@ import { GripVertical } from "lucide-react";
 
 import { Avatar } from "@/components/avatar";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -160,9 +165,26 @@ export function TaskRow({
           </span>
         </button>
 
-        <span title={ownerName} className="shrink-0">
-          <Avatar avatar={ownerAvatar} size={24} className="rounded-full" />
-        </span>
+        {/* P10.0: `title` alone only ever showed the owner's name on
+            desktop mouse hover — nothing a tap could reach. Same
+            native-title-for-hover-plus-Popover-for-tap shape P7.1's
+            avatar editor already established for its own locked-preset
+            hint, applied here for the same reason. */}
+        <Popover>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              title={ownerName}
+              aria-label={ownerName}
+              className="shrink-0"
+            >
+              <Avatar avatar={ownerAvatar} size={24} className="rounded-full" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent className="w-auto px-3 py-1.5 text-sm">
+            {ownerName}
+          </PopoverContent>
+        </Popover>
 
         <span className="text-muted-foreground hidden shrink-0 text-xs whitespace-nowrap sm:inline">
           {datePrimary}

@@ -30,6 +30,16 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # P10.0: first time `npm test` runs in CI (CLAUDE.md used to warn
+      # "npm test is not yet part of CI — don't assume a green PR means
+      # tests were run"; that warning is now stale, fixed in the same
+      # PR that needed it true). The load-bearing case is
+      # src/lib/navigation/reachability.test.ts — "a route added later
+      # cannot quietly skip mobile" (brief, verbatim) only holds if
+      # something actually runs this on every PR.
+      - name: Unit tests
+        run: npm test
+
       - name: Build
         run: npm run build
 

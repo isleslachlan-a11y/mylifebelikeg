@@ -641,22 +641,35 @@ export function TimelineView({
           />
         ) : null
       ) : isMobile ? (
-        <VerticalTimeline
-          lanes={visibleLanes}
-          scale={scale}
-          rangePx={rangePx}
-          today={today}
-          financialHorizon={financialHorizon}
-          collapsedLaneIds={collapsedLaneIds}
-          onToggleLane={toggleLane}
-          hoveredItemId={hoveredItemId}
-          onHoverItem={setHoveredItemId}
-          onNavigate={navigateToGoal}
-          goalRag={goalRag}
-          showCriticalPath={showCriticalPath}
-          showCriticalPathArrows={showCriticalPathArrows}
-          dependencyEdges={dependencyEdges}
-        />
+        <>
+          {/* P10.0: "degrade, don't hide" (Phase 10 brief) — this view
+              was already read-only and touch-scrollable by design
+              (P3.7's own "no drag, no resize, no inline editing here"),
+              but nothing on screen ever said so; a silent absence of
+              edit controls reads as a bug, not a choice. One line,
+              not a dismissible banner — it's a fact about this view,
+              not a notification. */}
+          <p className="text-muted-foreground -mt-2 text-xs">
+            Read-only here — editing tasks and dependencies is easier on a
+            larger screen (open the goal instead).
+          </p>
+          <VerticalTimeline
+            lanes={visibleLanes}
+            scale={scale}
+            rangePx={rangePx}
+            today={today}
+            financialHorizon={financialHorizon}
+            collapsedLaneIds={collapsedLaneIds}
+            onToggleLane={toggleLane}
+            hoveredItemId={hoveredItemId}
+            onHoverItem={setHoveredItemId}
+            onNavigate={navigateToGoal}
+            goalRag={goalRag}
+            showCriticalPath={showCriticalPath}
+            showCriticalPathArrows={showCriticalPathArrows}
+            dependencyEdges={dependencyEdges}
+          />
+        </>
       ) : (
         <HorizontalTimeline
           lanes={visibleLanes}
