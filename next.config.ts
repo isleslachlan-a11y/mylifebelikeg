@@ -9,6 +9,19 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: path.resolve(__dirname),
   },
+  images: {
+    // Unsplash package: "add images.unsplash.com to remotePatterns so
+    // next/image will serve these. Use next/image for sizing and lazy
+    // loading -- that is transformation of the delivered URL, which is
+    // expected, not re-hosting" (brief, verbatim) -- a correction to
+    // this app's earlier, overly-cautious "plain <img>, never
+    // next/image, for any hotlinked source" stance (see
+    // photo-picker.tsx's and dream-form-dialog.tsx's own updated
+    // comments). `new URL(...)` is this Next version's own documented
+    // shorthand for a single-host remotePattern (checked against
+    // node_modules/next/dist/docs, not assumed).
+    remotePatterns: [new URL("https://images.unsplash.com/**")],
+  },
 };
 
 /**

@@ -25,6 +25,7 @@ function rawPhoto(id: string) {
     },
     user: {
       name: "Someone Photogenic",
+      username: "someone",
       links: { html: "https://unsplash.com/@someone" },
     },
   };
@@ -72,6 +73,7 @@ describe("searchUnsplashPhotos", () => {
       fullUrl: "https://images.unsplash.com/kyoto-1?regular",
       altDescription: "a photo of kyoto-1",
       authorName: "Someone Photogenic",
+      authorUsername: "someone",
       downloadLocation: "https://api.unsplash.com/photos/kyoto-1/download",
     });
     const authorUrl = new URL(photo!.authorUrl);
@@ -79,8 +81,37 @@ describe("searchUnsplashPhotos", () => {
     expect(authorUrl.searchParams.get("utm_medium")).toBe("referral");
 
     // Sends the access key as a Client-ID bearer, never exposed to a caller.
-    const [, requestInit] = fetchMock.mock.calls[0]!;
+    const [calledUrl, requestInit] = fetchMock.mock.calls[0]!;
     expect(requestInit.headers.Authorization).toBe("Client-ID test-access-key");
+
+    // orientation=landscape and page are always sent, not just query --
+    // both are part of the narrowed request shape the Unsplash package's
+    // own brief specifies.
+    const sentUrl = new URL(String(calledUrl));
+    expect(sentUrl.searchParams.get("orientation")).toBe("landscape");
+    expect(sentUrl.searchParams.get("page")).toBe("1");
+  });
+
+  it("passes a given page number through to the request and keys the cache on it separately from page 1", async () => {
+    // A fresh Response per call, not mockResolvedValue's single shared
+    // instance -- a Response body can only be read (.json()) once, and
+    // this test deliberately calls searchUnsplashPhotos twice.
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(() =>
+        jsonResponse({ results: [rawPhoto("page-2-photo")] }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const query = "paginated unique query";
+    await searchUnsplashPhotos(query, 2);
+    const [calledUrl] = fetchMock.mock.calls[0]!;
+    expect(new URL(String(calledUrl)).searchParams.get("page")).toBe("2");
+
+    // Page 1 of the same query is a cache miss too -- it's a genuinely
+    // different result set, not the same entry keyed differently.
+    await searchUnsplashPhotos(query, 1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("caches results by normalized query — a second identical search doesn't refetch", async () => {

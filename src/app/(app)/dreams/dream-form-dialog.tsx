@@ -26,7 +26,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { PlacePickerField } from "@/components/mapbox/place-picker-field";
 import { PhotoPicker } from "@/components/unsplash/photo-picker";
-import { UnsplashAttribution } from "@/components/unsplash/unsplash-attribution";
+import { UnsplashPhotoPreview } from "@/components/unsplash/unsplash-photo-preview";
 import { ImageUpload } from "@/components/image-upload";
 import { LlamaMessage } from "@/components/llama-message";
 import { ShareCardButton } from "@/components/share-card-button";
@@ -586,31 +586,10 @@ export function DreamFormDialog({
           <div className="flex flex-col gap-1.5">
             <Label>Photo</Label>
             {form.photo?.source === "unsplash" ? (
-              <div className="flex flex-col gap-2">
-                <div className="ring-foreground/10 aspect-video w-full overflow-hidden rounded-lg ring-1">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={form.photo.photo.fullUrl || form.photo.photo.thumbUrl}
-                    alt={form.photo.photo.altDescription ?? ""}
-                    className="size-full object-cover"
-                  />
-                </div>
-                <div className="flex items-center justify-between gap-2">
-                  <UnsplashAttribution
-                    authorName={form.photo.photo.authorName}
-                    authorUrl={form.photo.photo.authorUrl}
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="max-md:h-11"
-                    onClick={() => patch({ photo: null })}
-                  >
-                    Change
-                  </Button>
-                </div>
-              </div>
+              <UnsplashPhotoPreview
+                photo={form.photo.photo}
+                onChange={() => patch({ photo: null })}
+              />
             ) : form.photo?.source === "upload" || photoTab === "upload" ? (
               <ImageUpload
                 userId={userId}
@@ -736,8 +715,19 @@ export function DreamFormDialog({
                   share sheet" (brief, verbatim) -- the route handler
                   itself is what actually enforces "never the price,
                   never anyone else's data"; this button only ever
-                  triggers it for the dream already open in this dialog. */}
-              <ShareCardButton dreamId={item.id} dreamTitle={item.title} />
+                  triggers it for the dream already open in this dialog.
+                  Unsplash correction: not rendered at all when the only
+                  photo this dream has is Unsplash-sourced with no
+                  achieved photo to fall back to -- "offer no card"
+                  (brief, verbatim), not a button that fails when
+                  pressed. The route itself still refuses that case too
+                  (defense in depth, same posture as every other
+                  client-side gate in this app), so a stale render of
+                  this dialog can't reach a working button either. */}
+              {(item.achieved_storage_path ||
+                item.image_source !== "unsplash") && (
+                <ShareCardButton dreamId={item.id} dreamTitle={item.title} />
+              )}
 
               {unachieveError && (
                 <p role="alert" className="text-destructive text-xs">
