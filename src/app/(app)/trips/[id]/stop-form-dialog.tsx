@@ -26,7 +26,7 @@ import {
   type PickedPlace,
 } from "@/components/mapbox/place-picker-field";
 import { PhotoPicker } from "@/components/unsplash/photo-picker";
-import { UnsplashAttribution } from "@/components/unsplash/unsplash-attribution";
+import { UnsplashPhotoPreview } from "@/components/unsplash/unsplash-photo-preview";
 import { COMMON_CURRENCIES, formatMoney, parseMoney } from "@/lib/money";
 import { BOOKING_STATE_PROGRESSION, bookingStateLabel } from "@/lib/trips";
 import type { UnsplashPhotoResult } from "@/lib/unsplash/types";
@@ -256,30 +256,10 @@ export function StopFormDialog({
           <div className="flex flex-col gap-1.5">
             <Label>Photo</Label>
             {form.photo ? (
-              <div className="flex flex-col gap-2">
-                <div className="ring-foreground/10 aspect-video w-full overflow-hidden rounded-lg ring-1">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={form.photo.fullUrl || form.photo.thumbUrl}
-                    alt={form.photo.altDescription ?? ""}
-                    className="size-full object-cover"
-                  />
-                </div>
-                <div className="flex items-center justify-between gap-2">
-                  <UnsplashAttribution
-                    authorName={form.photo.authorName}
-                    authorUrl={form.photo.authorUrl}
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => patch({ photo: null })}
-                  >
-                    Change
-                  </Button>
-                </div>
-              </div>
+              <UnsplashPhotoPreview
+                photo={form.photo}
+                onChange={() => patch({ photo: null })}
+              />
             ) : (
               <PhotoPicker onSelect={(photo) => patch({ photo })} />
             )}

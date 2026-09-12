@@ -37,6 +37,19 @@ export type UnsplashPhotoResult = {
   width: number;
   height: number;
   authorName: string;
+  /**
+   * Unsplash's own handle (`user.username`) — optional, not required,
+   * even though `/api/unsplash/search` always returns it fresh
+   * (mapPhoto in server.ts): no `unsplash_author_username` column
+   * exists on `someday_items`/`trip_stops` (Schema.MD only ever stored
+   * `unsplash_author_name`/`unsplash_author_url`), so a
+   * `UnsplashPhotoResult` *reconstructed* from an already-saved row
+   * (dream-form-dialog.tsx, stop-form-dialog.tsx) has no real value to
+   * put here. Kept on the type at all because the Unsplash package's
+   * own narrowed-response-shape list names it explicitly for a fresh
+   * search result.
+   */
+  authorUsername?: string;
   /** Profile URL, utm params already attached — store this verbatim as `unsplash_author_url`. */
   authorUrl: string;
   downloadLocation: string;

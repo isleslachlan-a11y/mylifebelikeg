@@ -27,20 +27,29 @@ export async function GET(request: Request): Promise<NextResponse> {
     return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   }
 
-  const q = new URL(request.url).searchParams.get("q") ?? "";
+  const params = new URL(request.url).searchParams;
+  const q = params.get("q") ?? "";
   if (!q.trim()) {
     return NextResponse.json({ results: [] });
   }
+  const pageParam = Number(params.get("page"));
+  const page = Number.isInteger(pageParam) && pageParam > 0 ? pageParam : 1;
 
   try {
-    const results = await searchUnsplashPhotos(q);
+    const results = await searchUnsplashPhotos(q, page);
     return NextResponse.json({ results });
   } catch (error) {
     if (error instanceof UnsplashRateLimitError) {
+      // "Never a generic error... image search is briefly unavailable,
+      // try again shortly, upload a photo instead" (brief, verbatim) —
+      // the exact wording lives here, at the source, rather than being
+      // reconstructed client-side from a generic message + a status
+      // code check.
       return NextResponse.json(
         {
           error:
-            "Unsplash is busy right now — try searching again in a few minutes.",
+            "Image search is briefly unavailable — try again shortly, or upload a photo instead.",
+          rateLimited: true,
         },
         { status: 429 },
       );

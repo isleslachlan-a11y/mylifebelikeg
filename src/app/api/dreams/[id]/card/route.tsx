@@ -73,7 +73,7 @@ export async function GET(
   const { data: dream, error } = await supabase
     .from("someday_items")
     .select(
-      "id, title, created_at, achieved_at, achieved_storage_path, image_source, storage_path, unsplash_full_url, unsplash_author_name, unsplash_author_url",
+      "id, title, created_at, achieved_at, achieved_storage_path, image_source, storage_path",
     )
     .eq("id", id)
     .eq("user_id", userId)
@@ -93,16 +93,37 @@ export async function GET(
     return new Response("Not found.", { status: 404 });
   }
 
+  // Unsplash correction (P6.0/Unsplash package): "generating an image
+  // that bakes an Unsplash photo into a new composition is
+  // redistribution, and it conflicts with the hotlinking guideline
+  // regardless of intent" (brief, verbatim) -- a previous version of
+  // this route fetched `unsplash_full_url`, re-encoded it via `sharp`,
+  // and embedded the result as a data URI in the generated card, which
+  // is exactly that. Fixed by removing the fallback entirely rather
+  // than trying to keep it "a little" -- there's no partial-compliance
+  // version of baking a hotlinked photo into a new file. `share-card-button.tsx`'s
+  // own caller (dream-form-dialog.tsx) is expected to not even render
+  // the button in this case (see that file's own comment), so reaching
+  // this branch at all means a stale client or a direct request --
+  // refused outright, not degraded to a photo-less card, so the
+  // restriction is visible rather than silently swallowed.
+  const isUnsplashOnly =
+    !dream.achieved_storage_path && dream.image_source === "unsplash";
+  if (isUnsplashOnly) {
+    return new Response(
+      "This dream's only photo is from Unsplash, which can't be baked into a generated image. Add an achieved photo, or an uploaded photo, to share a card for it.",
+      { status: 422 },
+    );
+  }
+
   // The achieved photo first (always an upload -- P8.0's own design,
   // "an achieved photo is definitionally always a real upload, never
   // Unsplash-sourced" -- see image-upload.tsx's comment). Only when
   // there isn't one (both photo and note are optional at achieve time,
-  // P8.4) does this fall back to the dream's *own* photo, which -- unlike
-  // the achieved photo -- really can be Unsplash-sourced, which is
-  // exactly why attribution is only ever computed on this fallback path,
-  // never the achieved-photo path.
+  // P8.4) does this fall back to the dream's *own* photo -- which, now
+  // that `isUnsplashOnly` has already refused the Unsplash case above,
+  // can only ever be an upload here too.
   let photoUrl: string | null = null;
-  let attribution: { authorName: string; authorUrl: string } | null = null;
 
   if (dream.achieved_storage_path) {
     // Full-resolution image, not the grid's thumbnail -- this is a
@@ -113,15 +134,6 @@ export async function GET(
     );
   } else if (dream.image_source === "upload" && dream.storage_path) {
     photoUrl = await getSignedDreamPhotoUrl(supabase, dream.storage_path);
-  } else if (dream.unsplash_full_url) {
-    // Already a public, directly fetchable URL -- no signing needed.
-    photoUrl = dream.unsplash_full_url;
-    if (dream.unsplash_author_name && dream.unsplash_author_url) {
-      attribution = {
-        authorName: dream.unsplash_author_name,
-        authorUrl: dream.unsplash_author_url,
-      };
-    }
   }
 
   // P8.7: found live -- Satori (what `ImageResponse` renders `<img>`
@@ -265,19 +277,6 @@ export async function GET(
             >
               {interval}
             </div>
-            {attribution && (
-              <div
-                style={{
-                  display: "flex",
-                  fontSize: 22,
-                  fontFamily: "sans-serif",
-                  color: "#9b96c7",
-                  marginTop: 8,
-                }}
-              >
-                {`Photo by ${attribution.authorName} on Unsplash`}
-              </div>
-            )}
           </div>
         </div>
       ),

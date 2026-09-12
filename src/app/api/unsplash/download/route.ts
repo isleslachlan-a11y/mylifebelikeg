@@ -49,7 +49,8 @@ export async function POST(request: Request): Promise<NextResponse> {
       return NextResponse.json(
         {
           error:
-            "Unsplash is busy right now — try searching again in a few minutes.",
+            "Image search is briefly unavailable — try again shortly, or upload a photo instead.",
+          rateLimited: true,
         },
         { status: 429 },
       );
