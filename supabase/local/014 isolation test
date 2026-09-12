@@ -50,7 +50,9 @@ declare
     'v_goal_rag', 'v_goal_rating_trend', 'v_monthly_capacity',
     'v_monthly_cashflow', 'v_pot_balances', 'v_rating_divergence',
     'v_someday_progress', 'v_timeline_items', 'v_trip_estimates',
-    'v_user_capacity'
+    'v_user_capacity',
+    -- Goal sharing (0043)
+    'v_shared_with_me', 'v_goal_participants_detail', 'v_pending_invitations'
   ];
 begin
   for v_row in
@@ -398,6 +400,19 @@ begin
   select count(*) into n from v_countries_visited where user_id = '44444444-4444-4444-4444-444444444444';
   assert n = 0, 'LEAK: B sees A''s countries visited';
 
+  -- Goal sharing (0043): B was never made a participant on any of A's
+  -- goals in this fixture, so all three of these should be structurally
+  -- empty with respect to A -- not just "empty because B never looked."
+  select count(*) into n from v_shared_with_me where owner_id = '44444444-4444-4444-4444-444444444444';
+  assert n = 0, 'LEAK: B sees A''s goals in v_shared_with_me';
+
+  select count(*) into n from v_goal_participants_detail
+   where goal_id in ('a0000000-0000-0000-0000-000000000010', 'a0000000-0000-0000-0000-000000000011');
+  assert n = 0, 'LEAK: B sees participant details on A''s goals';
+
+  select count(*) into n from v_pending_invitations;
+  assert n = 0, 'LEAK: B sees pending invitations that aren''t theirs';
+
   -- Global reference views: B sees the *same* rows as anyone, which is
   -- correct (not a leak) -- asserted as "readable", not "empty".
   select count(*) into n from v_available_presets;
@@ -526,6 +541,20 @@ begin
   assert n = 0, 'LEAK: C sees A''s dreams via the (unrelated) goal grant';
   select count(*) into n from pots where user_id = '44444444-4444-4444-4444-444444444444';
   assert n = 0, 'LEAK: C sees A''s pots via the goal grant';
+
+  -- Goal sharing (0043): a bare view grant doesn't make C a participant
+  -- -- v_goal_participants_detail's own access check (app.can_view_goal,
+  -- owner-or-participant only, deliberately not has_grant) means C sees
+  -- no participant list here either, matching the same "doesn't cascade"
+  -- decision the rest of this block already covers for tasks/milestones/etc.
+  select count(*) into n from v_goal_participants_detail
+   where goal_id = 'a0000000-0000-0000-0000-000000000010';
+  assert n = 0, 'LEAK: C sees the participant list via a bare goal grant';
+
+  -- A grant is not participation -- v_shared_with_me is
+  -- goal_participants-shaped, not share_grants-shaped.
+  select count(*) into n from v_shared_with_me where goal_id = 'a0000000-0000-0000-0000-000000000010';
+  assert n = 0, 'LEAK: a bare view grant should not appear in v_shared_with_me (that''s goal_participants'' job)';
 end $$;
 
 do $$

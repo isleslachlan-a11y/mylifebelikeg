@@ -14,6 +14,40 @@
 -- statements naming these three roles -- they have to exist before
 -- that file, or every one of those GRANTs fails outright.
 
+-- Goal sharing package: `pgcrypto` (gen_random_bytes/digest, used by
+-- app.create_goal_invitation/accept_invitation for the raw-token-once
+-- shape) is a Supabase-managed extension, pre-enabled on every real
+-- project in its own `extensions` schema -- confirmed live via
+-- `pg_extension`, not assumed. Never present on a bare Postgres
+-- instance, which is exactly what broke here first ("function
+-- gen_random_bytes does not exist" against a fresh scratch database).
+-- Installed into an `extensions` schema here too, matching the real
+-- project's own layout, rather than the default (`public`) -- `public`
+-- doesn't even exist yet at this point in a from-scratch replay (CI
+-- drops it before this shim runs; `0008_baseline_schema.sql` is what
+-- recreates it), so `CREATE EXTENSION` with no explicit schema would
+-- fail outright here regardless ("no schema has been selected to
+-- create in", found the hard way). This schema needs no role grants of
+-- its own the way `storage`/`auth` do below -- functions that need
+-- these two are the only callers, and they name `extensions` in their
+-- own `search_path` explicitly.
+create schema if not exists extensions;
+create extension if not exists pgcrypto with schema extensions;
+
+-- Every local suite in this directory runs as the plain `postgres`
+-- superuser (`docker exec ... psql -U postgres -f ...`), a fresh
+-- session per file -- none of them `set role` to anything before
+-- calling a pgcrypto function directly (015 deletion test's own
+-- fixture-building blocks are the same shape), so `digest()`/
+-- `gen_random_bytes()` need to resolve unqualified for the `postgres`
+-- role specifically, the same way Supabase's own database-wide default
+-- search_path already includes `extensions` for every role on a real
+-- project. `ALTER ROLE` here takes effect for sessions *after* this
+-- one, not retroactively -- safe to run mid-shim, since every
+-- migration and every local suite after this point is its own fresh
+-- `psql -f` invocation anyway.
+alter role postgres set search_path to public, extensions;
+
 do $$
 begin
   if not exists (select 1 from pg_roles where rolname = 'anon') then

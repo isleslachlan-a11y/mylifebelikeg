@@ -1,0 +1,267 @@
+-- LOCAL ONLY. Verifies goal sharing: invite, accept, leave, transfer.
+-- Run after 001_smoke_test.sql.
+\set ON_ERROR_STOP on
+begin;
+
+select set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+
+-- ---- handle lookup -----------------------------------------------------------
+do $$
+declare p record;
+begin
+  select * into p from app.find_profile_by_handle('user_b');
+  assert p.id = '22222222-2222-2222-2222-222222222222', 'handle lookup failed';
+
+  select * into p from app.find_profile_by_handle('USER_B');
+  assert p.id = '22222222-2222-2222-2222-222222222222', 'lookup should be case-insensitive';
+
+  select * into p from app.find_profile_by_handle('nobody_here');
+  assert p.id is null, 'unknown handle should return nothing';
+end $$;
+
+-- ---- invite by handle --------------------------------------------------------
+do $$
+declare v_id uuid; g record; n int;
+begin
+  v_id := app.invite_by_handle('bbbbbbbb-0000-0000-0000-000000000003', 'user_b', 'collaborator');
+  assert v_id is not null, 'invite should return a participant id';
+
+  select * into g from goals where id = 'bbbbbbbb-0000-0000-0000-000000000003';
+  assert g.visibility = 'shared', 'sharing a goal should set visibility to shared';
+
+  -- the invitee is notified
+  select count(*) into n from llama_messages
+   where user_id = '22222222-2222-2222-2222-222222222222'
+     and trigger_code = 'goal_shared_with_you'
+     and resource_id = 'bbbbbbbb-0000-0000-0000-000000000003';
+  assert n = 1, format('invitee should be notified once, got %s', n);
+end $$;
+
+-- inviting the same person twice is refused, not duplicated
+do $$
+begin
+  begin
+    perform app.invite_by_handle('bbbbbbbb-0000-0000-0000-000000000003', 'user_b');
+    assert false, 'duplicate invite should be refused';
+  exception when unique_violation then null;
+  end;
+end $$;
+
+-- inviting yourself is refused
+do $$
+begin
+  begin
+    perform app.invite_by_handle('bbbbbbbb-0000-0000-0000-000000000003', 'user_a');
+    assert false, 'inviting yourself should be refused';
+  exception when check_violation then null;
+  end;
+end $$;
+
+-- unknown handle
+do $$
+begin
+  begin
+    perform app.invite_by_handle('bbbbbbbb-0000-0000-0000-000000000003', 'ghost');
+    assert false, 'unknown handle should raise';
+  exception when no_data_found then null;
+  end;
+end $$;
+
+-- a non-owner cannot invite
+select set_config('request.jwt.claim.sub', '22222222-2222-2222-2222-222222222222', false);
+do $$
+begin
+  begin
+    perform app.invite_by_handle('bbbbbbbb-0000-0000-0000-000000000003', 'user_a');
+    assert false, 'a collaborator must not be able to invite';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+-- ---- shared-with-me ----------------------------------------------------------
+do $$
+declare n int; s record;
+begin
+  -- v_shared_with_me filters on auth.uid() in its own WHERE clause, so it is
+  -- meaningful even running as superuser.
+  select count(*) into n from v_shared_with_me;
+  assert n >= 1, 'B should see goals shared with them';
+
+  select * into s from v_shared_with_me
+   where goal_id = 'bbbbbbbb-0000-0000-0000-000000000003';
+  assert s.owner_handle = 'user_a', 'shared view should name the owner';
+  assert s.my_role = 'collaborator', format('role wrong: %s', s.my_role);
+
+  -- owned goals must not appear in shared-with-me
+  select count(*) into n from v_shared_with_me
+   where owner_id = '22222222-2222-2222-2222-222222222222';
+  assert n = 0, 'own goals should not appear as shared with you';
+end $$;
+
+-- ---- leaving -----------------------------------------------------------------
+-- blocked while holding open tasks
+select set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+do $$
+begin
+  begin
+    perform app.leave_goal('bbbbbbbb-0000-0000-0000-000000000001',
+                           '22222222-2222-2222-2222-222222222222');
+    assert false, 'should not be able to remove someone holding open tasks';
+  exception when check_violation then null;
+  end;
+end $$;
+
+-- allowed once tasks are reassigned
+do $$
+declare n int;
+begin
+  update tasks set owner_id = '11111111-1111-1111-1111-111111111111'
+   where goal_id = 'bbbbbbbb-0000-0000-0000-000000000001'
+     and owner_id = '22222222-2222-2222-2222-222222222222';
+
+  perform app.leave_goal('bbbbbbbb-0000-0000-0000-000000000001',
+                         '22222222-2222-2222-2222-222222222222');
+
+  select count(*) into n from goal_participants
+   where goal_id = 'bbbbbbbb-0000-0000-0000-000000000001'
+     and user_id = '22222222-2222-2222-2222-222222222222' and removed_at is null;
+  assert n = 0, 'participant should be removed';
+end $$;
+
+-- B can no longer see it. NOTE: this file runs as superuser, which bypasses
+-- RLS, so querying `goals` directly proves nothing. Test the access predicate
+-- the policies actually use. Full RLS isolation is covered by 002_rls_test.sql.
+select set_config('request.jwt.claim.sub', '22222222-2222-2222-2222-222222222222', false);
+do $$
+begin
+  assert not app.can_view_goal('bbbbbbbb-0000-0000-0000-000000000001'),
+    'removed participant should no longer have view access';
+  assert not app.can_edit_goal('bbbbbbbb-0000-0000-0000-000000000001'),
+    'removed participant should no longer have edit access';
+end $$;
+
+-- re-inviting reactivates rather than duplicating
+select set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+do $$
+declare n int;
+begin
+  perform app.invite_by_handle('bbbbbbbb-0000-0000-0000-000000000001', 'user_b');
+  select count(*) into n from goal_participants
+   where goal_id = 'bbbbbbbb-0000-0000-0000-000000000001'
+     and user_id = '22222222-2222-2222-2222-222222222222';
+  assert n = 1, format('re-invite should reactivate, not duplicate: %s rows', n);
+end $$;
+
+-- the owner cannot leave their own goal
+do $$
+begin
+  begin
+    perform app.leave_goal('bbbbbbbb-0000-0000-0000-000000000001',
+                           '11111111-1111-1111-1111-111111111111');
+    assert false, 'owner should not be able to leave';
+  exception when check_violation then null;
+  end;
+end $$;
+
+-- ---- email invitations -------------------------------------------------------
+do $$
+declare v_token text; n int;
+begin
+  v_token := app.create_goal_invitation('bbbbbbbb-0000-0000-0000-000000000003',
+                                        'newperson@example.com', 'collaborator');
+  assert length(v_token) = 64, format('token should be 64 hex chars, got %s', length(v_token));
+
+  -- stored only as a digest
+  select count(*) into n from invitations where token_hash = v_token;
+  assert n = 0, 'LEAK: raw token stored in the database';
+
+  select count(*) into n from invitations
+   where token_hash = encode(digest(v_token, 'sha256'), 'hex');
+  assert n = 1, 'invitation should be stored as a digest';
+
+  select count(*) into n from v_pending_invitations where email = 'newperson@example.com';
+  assert n = 1, 'pending invitation should be listed';
+end $$;
+
+-- inviting an existing user by email is redirected to handle invite
+do $$
+begin
+  begin
+    perform app.create_goal_invitation('bbbbbbbb-0000-0000-0000-000000000003',
+                                       'b@example.com', 'collaborator');
+    assert false, 'existing user should not be invited by email';
+  exception when check_violation then null;
+  end;
+end $$;
+
+-- malformed email
+do $$
+begin
+  begin
+    perform app.create_goal_invitation('bbbbbbbb-0000-0000-0000-000000000003',
+                                       'not-an-email', 'collaborator');
+    assert false, 'malformed email should be refused';
+  exception when check_violation then null;
+  end;
+end $$;
+
+-- ---- accepting ---------------------------------------------------------------
+do $$
+declare v_token text; v_goal uuid; n int;
+begin
+  -- a fresh third user accepts
+  insert into auth.users (id, email) values
+    ('55555555-5555-5555-5555-555555555555', 'newperson@example.com');
+  insert into profiles (id, handle, display_name) values
+    ('55555555-5555-5555-5555-555555555555', 'user_c', 'User C');
+
+  v_token := app.create_goal_invitation('bbbbbbbb-0000-0000-0000-000000000002',
+                                        'another@example.com', 'viewer');
+
+  perform set_config('request.jwt.claim.sub', '55555555-5555-5555-5555-555555555555', false);
+  v_goal := app.accept_invitation(v_token);
+  assert v_goal = 'bbbbbbbb-0000-0000-0000-000000000002', 'accept should return the goal';
+
+  select count(*) into n from goal_participants
+   where goal_id = v_goal and user_id = '55555555-5555-5555-5555-555555555555'
+     and removed_at is null and role = 'viewer';
+  assert n = 1, 'accepting should create a viewer participant';
+
+  -- token cannot be reused
+  begin
+    perform app.accept_invitation(v_token);
+    assert false, 'an accepted invitation should not be reusable';
+  exception when no_data_found then null;
+  end;
+end $$;
+
+-- a bogus token is refused
+do $$
+begin
+  begin
+    perform app.accept_invitation('deadbeef');
+    assert false, 'invalid token should be refused';
+  exception when no_data_found then null;
+  end;
+end $$;
+
+-- ---- ownership transfer ------------------------------------------------------
+select set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+do $$
+declare g record; n int;
+begin
+  perform app.transfer_goal_ownership('bbbbbbbb-0000-0000-0000-000000000003',
+                                      '22222222-2222-2222-2222-222222222222');
+
+  select * into g from goals where id = 'bbbbbbbb-0000-0000-0000-000000000003';
+  assert g.owner_id = '22222222-2222-2222-2222-222222222222', 'ownership did not transfer';
+
+  -- the previous owner keeps access
+  select count(*) into n from goal_participants
+   where goal_id = 'bbbbbbbb-0000-0000-0000-000000000003'
+     and user_id = '11111111-1111-1111-1111-111111111111' and removed_at is null;
+  assert n = 1, 'previous owner should remain a participant';
+end $$;
+
+rollback;
+select 'GOAL SHARING VERIFIED' as result;

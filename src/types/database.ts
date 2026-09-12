@@ -3317,6 +3317,111 @@ export type Database = {
         }
         Relationships: []
       }
+      v_goal_participants_detail: {
+        Row: {
+          avatar: Json | null
+          display_name: string | null
+          goal_id: string | null
+          handle: string | null
+          id: string | null
+          joined_at: string | null
+          role: Database["public"]["Enums"]["participant_role"] | null
+          user_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "goal_participants_goal_id_fkey"
+            columns: ["goal_id"]
+            isOneToOne: false
+            referencedRelation: "goals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "goal_participants_goal_id_fkey"
+            columns: ["goal_id"]
+            isOneToOne: false
+            referencedRelation: "v_goal_affordability"
+            referencedColumns: ["goal_id"]
+          },
+          {
+            foreignKeyName: "goal_participants_goal_id_fkey"
+            columns: ["goal_id"]
+            isOneToOne: false
+            referencedRelation: "v_goal_funding"
+            referencedColumns: ["goal_id"]
+          },
+          {
+            foreignKeyName: "goal_participants_goal_id_fkey"
+            columns: ["goal_id"]
+            isOneToOne: false
+            referencedRelation: "v_goal_projected_end"
+            referencedColumns: ["goal_id"]
+          },
+          {
+            foreignKeyName: "goal_participants_goal_id_fkey"
+            columns: ["goal_id"]
+            isOneToOne: false
+            referencedRelation: "v_goal_rag"
+            referencedColumns: ["goal_id"]
+          },
+          {
+            foreignKeyName: "goal_participants_goal_id_fkey"
+            columns: ["goal_id"]
+            isOneToOne: false
+            referencedRelation: "v_goal_rating_trend"
+            referencedColumns: ["goal_id"]
+          },
+          {
+            foreignKeyName: "goal_participants_goal_id_fkey"
+            columns: ["goal_id"]
+            isOneToOne: false
+            referencedRelation: "v_rating_divergence"
+            referencedColumns: ["goal_id"]
+          },
+          {
+            foreignKeyName: "goal_participants_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "goal_participants_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_allocation_summary"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "goal_participants_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_checkin_streak"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "goal_participants_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_financial_horizon"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "goal_participants_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_monthly_capacity"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "goal_participants_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "v_user_capacity"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
       v_goal_projected_end: {
         Row: {
           goal_id: string | null
@@ -3418,6 +3523,36 @@ export type Database = {
           },
         ]
       }
+      v_pending_invitations: {
+        Row: {
+          created_at: string | null
+          email: string | null
+          expires_at: string | null
+          id: string | null
+          resource_id: string | null
+          resource_type: string | null
+          scope: Database["public"]["Enums"]["share_scope"] | null
+        }
+        Insert: {
+          created_at?: string | null
+          email?: string | null
+          expires_at?: string | null
+          id?: string | null
+          resource_id?: string | null
+          resource_type?: string | null
+          scope?: Database["public"]["Enums"]["share_scope"] | null
+        }
+        Update: {
+          created_at?: string | null
+          email?: string | null
+          expires_at?: string | null
+          id?: string | null
+          resource_id?: string | null
+          resource_type?: string | null
+          scope?: Database["public"]["Enums"]["share_scope"] | null
+        }
+        Relationships: []
+      }
       v_pot_balances: {
         Row: {
           balance_minor: number | null
@@ -3482,6 +3617,109 @@ export type Database = {
           spread: number | null
         }
         Relationships: []
+      }
+      v_shared_with_me: {
+        Row: {
+          goal_id: string | null
+          joined_at: string | null
+          my_role: Database["public"]["Enums"]["participant_role"] | null
+          owner_display_name: string | null
+          owner_handle: string | null
+          owner_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "goal_participants_goal_id_fkey"
+            columns: ["goal_id"]
+            isOneToOne: false
+            referencedRelation: "goals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "goal_participants_goal_id_fkey"
+            columns: ["goal_id"]
+            isOneToOne: false
+            referencedRelation: "v_goal_affordability"
+            referencedColumns: ["goal_id"]
+          },
+          {
+            foreignKeyName: "goal_participants_goal_id_fkey"
+            columns: ["goal_id"]
+            isOneToOne: false
+            referencedRelation: "v_goal_funding"
+            referencedColumns: ["goal_id"]
+          },
+          {
+            foreignKeyName: "goal_participants_goal_id_fkey"
+            columns: ["goal_id"]
+            isOneToOne: false
+            referencedRelation: "v_goal_projected_end"
+            referencedColumns: ["goal_id"]
+          },
+          {
+            foreignKeyName: "goal_participants_goal_id_fkey"
+            columns: ["goal_id"]
+            isOneToOne: false
+            referencedRelation: "v_goal_rag"
+            referencedColumns: ["goal_id"]
+          },
+          {
+            foreignKeyName: "goal_participants_goal_id_fkey"
+            columns: ["goal_id"]
+            isOneToOne: false
+            referencedRelation: "v_goal_rating_trend"
+            referencedColumns: ["goal_id"]
+          },
+          {
+            foreignKeyName: "goal_participants_goal_id_fkey"
+            columns: ["goal_id"]
+            isOneToOne: false
+            referencedRelation: "v_rating_divergence"
+            referencedColumns: ["goal_id"]
+          },
+          {
+            foreignKeyName: "goals_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "goals_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_allocation_summary"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "goals_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_checkin_streak"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "goals_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_financial_horizon"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "goals_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_monthly_capacity"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "goals_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "v_user_capacity"
+            referencedColumns: ["user_id"]
+          },
+        ]
       }
       v_someday_progress: {
         Row: {
@@ -3634,9 +3872,14 @@ export type Database = {
       }
     }
     Functions: {
+      accept_invitation: { Args: { p_token: string }; Returns: string }
       check_rate_limit: {
         Args: { p_bucket: string; p_max: number; p_window_seconds: number }
         Returns: boolean
+      }
+      create_goal_invitation: {
+        Args: { p_email: string; p_goal_id: string; p_role?: string }
+        Returns: string
       }
       create_trip_goal: {
         Args: {
@@ -3674,7 +3917,24 @@ export type Database = {
           name: string
         }[]
       }
+      find_profile_by_handle: {
+        Args: { p_handle: string }
+        Returns: {
+          avatar: Json
+          display_name: string
+          handle: string
+          id: string
+        }[]
+      }
       grant_achievement: { Args: { p_code: string }; Returns: boolean }
+      invite_by_handle: {
+        Args: { p_goal_id: string; p_handle: string; p_role?: string }
+        Returns: string
+      }
+      leave_goal: {
+        Args: { p_goal_id: string; p_user_id?: string }
+        Returns: undefined
+      }
       prepare_user_deletion: { Args: { p_user_id: string }; Returns: undefined }
       presets_unlocked_by: {
         Args: { p_achievement_code: string }
@@ -3709,6 +3969,10 @@ export type Database = {
       surface_dream_for_checkin: {
         Args: { check_in_id: string }
         Returns: string
+      }
+      transfer_goal_ownership: {
+        Args: { p_goal_id: string; p_new_owner_id: string }
+        Returns: undefined
       }
     }
     Enums: {
