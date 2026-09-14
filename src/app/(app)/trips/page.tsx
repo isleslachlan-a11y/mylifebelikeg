@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { NewGoalBadge, RagBadge } from "@/components/rag-badge";
 import { formatDate } from "@/lib/dates";
@@ -19,10 +20,19 @@ export default async function TripsPage() {
   const [{ data: profile }, { data: goals, error: goalsError }] =
     await Promise.all([
       supabase.from("profiles").select("timezone").eq("id", userId).single(),
+      // F3: "surface shared items in their home lists... a shared trip
+      // in the trips list" (brief, verbatim). No owner_id filter here
+      // at all -- this already relies entirely on goals_select's RLS
+      // (owner OR participant OR a goal/trip-level share grant, the
+      // last of which 0044 just made trips_select-reachable), so a
+      // trip shared via either grant type surfaces here for free. What
+      // the query alone can't do is *mark* it as someone else's --
+      // owner_id is selected for exactly that, checked against userId
+      // below.
       supabase
         .from("goals")
         .select(
-          "id, title, start_date, target_date, target_amount_minor, currency",
+          "id, owner_id, title, start_date, target_date, target_amount_minor, currency, owner:profiles!goals_owner_id_fkey(display_name)",
         )
         .eq("kind", "trip")
         .is("deleted_at", null)
@@ -113,6 +123,11 @@ export default async function TripsPage() {
                       ))}
                   </div>
                   <div className="text-muted-foreground flex flex-wrap gap-x-4 gap-y-1 text-sm">
+                    {goal.owner_id !== userId && goal.owner?.display_name && (
+                      <Badge variant="outline">
+                        Shared by {goal.owner.display_name}
+                      </Badge>
+                    )}
                     {goal.start_date && (
                       <span>
                         Starts {formatDate(goal.start_date, timezone)}

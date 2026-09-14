@@ -267,8 +267,7 @@ export const COPY_VARIANTS: { [K in TriggerCode]: CopyFn<K>[] } = {
   dream_achieved: [
     ({ dreamTitle }) =>
       `${dreamTitle} — you actually got it. That's what the whole list is for!`,
-    ({ dreamTitle }) =>
-      `${dreamTitle}: from someday to done. Look at that!`,
+    ({ dreamTitle }) => `${dreamTitle}: from someday to done. Look at that!`,
     ({ dreamTitle }) =>
       `You did it — ${dreamTitle} isn't a dream anymore, it's just yours now.`,
   ],
@@ -298,6 +297,29 @@ export const COPY_VARIANTS: { [K in TriggerCode]: CopyFn<K>[] } = {
       `You're in on "${goalTitle}" now — ${ownerName} added you. Say hello.`,
     ({ goalTitle, ownerName }) =>
       `New one in your list: "${goalTitle}", courtesy of ${ownerName}.`,
+  ],
+  // Friends and sharing package (F1/F3). Never picked at random by
+  // getLlamaCopy for real use -- 0044's own SQL functions author their
+  // three variants directly (same "the trigger fires inside a database
+  // function, not application code" reasoning goal_shared_with_you's
+  // own comment gives). Kept here so every TriggerCode has a real,
+  // reviewable entry on /styleguide/llamas.
+  friend_request: [
+    ({ requesterName }) =>
+      `${requesterName} wants to be friends -- take a look.`,
+    ({ requesterName }) =>
+      `A friend request just came in, from ${requesterName}.`,
+    ({ requesterName }) => `${requesterName} sent you a friend request.`,
+  ],
+  friend_accepted: [
+    ({ accepterName }) => `${accepterName} accepted your friend request!`,
+    ({ accepterName }) => `You and ${accepterName} are friends now.`,
+    ({ accepterName }) => `${accepterName} said yes -- you're friends.`,
+  ],
+  resource_shared_with_you: [
+    () => "Something just got shared with you -- take a look.",
+    () => "You've got a new share waiting.",
+    () => "A friend just shared something with you.",
   ],
 };
 

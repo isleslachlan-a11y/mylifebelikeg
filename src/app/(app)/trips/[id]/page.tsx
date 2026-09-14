@@ -49,7 +49,7 @@ export default async function TripDetailPage({
     supabase
       .from("goals")
       .select(
-        "id, title, start_date, target_date, currency, target_amount_minor, funding, life_area:life_areas(id, name, colour)",
+        "id, owner_id, title, start_date, target_date, currency, target_amount_minor, funding, life_area:life_areas(id, name, colour)",
       )
       .eq("id", trip.goal_id)
       .maybeSingle(),
@@ -112,6 +112,7 @@ export default async function TripDetailPage({
       goalRag={goalRag ?? null}
       estimate={estimate ?? null}
       somedayItems={somedayItems ?? []}
+      isOwner={goal?.owner_id === userId}
     />
   );
 }

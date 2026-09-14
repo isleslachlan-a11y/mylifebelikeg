@@ -83,6 +83,14 @@ export const TRIGGER_REGISTRY: Record<TriggerCode, RegistryEntry> = {
   // `app.invite_by_handle` (0043) directly, not through this registry's
   // usual emitLlamaMessage path -- see the TriggerParams comment.
   goal_shared_with_you: { speaker: "fluffy", priority: 1 },
+  // F1 brief, verbatim: "Add both to the P0.6 registry at priority 1
+  // and 2." A request arriving is priority 1 (something to act on);
+  // an acceptance is priority 2 (good news, not urgent).
+  friend_request: { speaker: "fluffy", priority: 1 },
+  friend_accepted: { speaker: "fluffy", priority: 2 },
+  // F3 brief, verbatim: "a Fluffy trigger; add it to the P0.6 registry
+  // at priority 2."
+  resource_shared_with_you: { speaker: "fluffy", priority: 2 },
 };
 
 export function getSpeaker(trigger: TriggerCode): LlamaSpeaker {

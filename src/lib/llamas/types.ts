@@ -40,7 +40,10 @@ export type TriggerCode =
   | "dream_let_go"
   | "dream_prune_available"
   | "dreams_achieved_recap"
-  | "goal_shared_with_you";
+  | "goal_shared_with_you"
+  | "friend_request"
+  | "friend_accepted"
+  | "resource_shared_with_you";
 
 /** Typed parameters each trigger's copy templates need. */
 export type TriggerParams = {
@@ -225,6 +228,25 @@ export type TriggerParams = {
    * every `TriggerCode` to resolve to a speaker.
    */
   goal_shared_with_you: { goalTitle: string; ownerName: string };
+  /**
+   * Friends and sharing package (F1). Emitted directly from
+   * app.send_friend_request (0044), same "documentation/type-
+   * completeness only, the real copy lives in SQL" shape
+   * goal_shared_with_you already established -- see that trigger's
+   * own comment.
+   */
+  friend_request: { requesterName: string };
+  /** F1: emitted from app._apply_friendship_accepted (0044). */
+  friend_accepted: { accepterName: string };
+  /**
+   * F3: emitted from app.share_resource/app.share_with_all_friends
+   * (0044). resourceType isn't part of the params shape -- the SQL
+   * body text is generic ("something just got shared with you") on
+   * purpose, since the trigger fires for all four resource types
+   * uniformly and the recipient sees exactly what it is the moment
+   * they open /shared or the inbox link.
+   */
+  resource_shared_with_you: Record<string, never>;
 };
 
 /** Display metadata for the two speakers — not database-derived, just copy. */

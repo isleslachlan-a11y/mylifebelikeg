@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { NewGoalBadge, RagBadge } from "@/components/rag-badge";
+import { ShareControl } from "@/components/sharing/share-control";
 import { formatDate } from "@/lib/dates";
 import { formatMoney } from "@/lib/money";
 import { isGracePeriod } from "@/lib/rag";
@@ -21,6 +22,7 @@ type Trip = Database["public"]["Tables"]["trips"]["Row"];
 type Goal = Pick<
   Database["public"]["Tables"]["goals"]["Row"],
   | "id"
+  | "owner_id"
   | "title"
   | "start_date"
   | "target_date"
@@ -55,6 +57,7 @@ export function TripDetail({
   goalRag,
   estimate,
   somedayItems,
+  isOwner,
 }: {
   trip: Trip;
   goal: Goal;
@@ -65,6 +68,7 @@ export function TripDetail({
   goalRag: GoalRag | null;
   estimate: TripEstimate | null;
   somedayItems: SomedayItem[];
+  isOwner: boolean;
 }) {
   const router = useRouter();
   const [tripState, setTripState] = useState<TripState>({
@@ -116,6 +120,12 @@ export function TripDetail({
               Starts {formatDate(goal.start_date, timezone)}
             </span>
           )}
+          <ShareControl
+            resourceType="trip"
+            resourceId={trip.id}
+            isOwner={isOwner}
+            path={`/trips/${trip.id}`}
+          />
           {trip.origin_name && (
             <span className="text-muted-foreground text-sm">
               From {trip.origin_name}

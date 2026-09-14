@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { Avatar } from "@/components/avatar";
 import { PinnedFlair } from "@/components/pinned-flair";
+import { ShareControl } from "@/components/sharing/share-control";
 import { formatDate } from "@/lib/dates";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -196,6 +197,28 @@ export default async function ProfilePage() {
         <AchievementGrid
           achievements={achievements}
           unlockedByCode={unlockedByCode}
+        />
+      </section>
+
+      <section className="flex flex-col gap-2">
+        <h2 className="font-display text-xl">Sharing</h2>
+        <p className="text-muted-foreground text-sm">
+          Friends see your avatar, pinned achievements and shared goals by
+          default — share explicitly with anyone else here, or manage everything
+          you&rsquo;ve shared at{" "}
+          <Link
+            href="/settings/sharing"
+            className="text-primary underline-offset-4 hover:underline"
+          >
+            Sharing settings
+          </Link>
+          .
+        </p>
+        <ShareControl
+          resourceType="profile"
+          resourceId={userId}
+          isOwner
+          path="/profile"
         />
       </section>
 

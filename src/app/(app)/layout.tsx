@@ -58,7 +58,9 @@ export default async function AppLayout({
   // app going down over one non-essential fetch.
   const { data: llamaMessages, error: llamaMessagesError } = await supabase
     .from("llama_messages")
-    .select("id, speaker, body, read_at, resource_type, resource_id, trigger_code")
+    .select(
+      "id, speaker, body, read_at, resource_type, resource_id, trigger_code",
+    )
     .is("dismissed_at", null)
     .order("created_at", { ascending: false })
     .limit(30);
@@ -74,21 +76,42 @@ export default async function AppLayout({
     resourceId: m.resource_id,
   }));
 
+  // F1: "Badge the friends nav item on a pending incoming request"
+  // (brief, verbatim) -- a direct count on friendships rather than
+  // routing through v_friend_requests, since this only needs a number,
+  // not the resolved-profile shape that view exists for.
+  const { count: incomingRequestCount, error: incomingRequestError } =
+    await supabase
+      .from("friendships")
+      .select("id", { count: "exact", head: true })
+      .eq("addressee_id", auth.claims.sub)
+      .eq("status", "pending");
+  if (incomingRequestError) {
+    console.error(
+      "AppLayout: incoming friend request count failed",
+      incomingRequestError,
+    );
+  }
+
   // Goal sharing package (S2): "badge on the goals nav item for unread
   // share notification" (brief, verbatim) -- computed here, once, off
   // the same inbox fetch above rather than a second query; a Set keyed
   // by nav entry id since that's what NavLink/Sidebar/TabBar already
-  // key off, even though today it can only ever contain "goals".
-  const badgedNavEntryIds = new Set<string>(
+  // key off.
+  const badgedNavEntryIds = new Set<string>();
+  if (
     llamaMessages?.some(
       (m) =>
         m.read_at == null &&
         m.trigger_code === "goal_shared_with_you" &&
         m.resource_type === "goal",
     )
-      ? ["goals"]
-      : [],
-  );
+  ) {
+    badgedNavEntryIds.add("goals");
+  }
+  if ((incomingRequestCount ?? 0) > 0) {
+    badgedNavEntryIds.add("friends");
+  }
 
   return (
     <div className="flex min-h-screen">

@@ -9,10 +9,12 @@ import {
   Map,
   Palette,
   Plane,
+  Share2,
   ShieldAlert,
   Sparkles,
   Tags,
   Target,
+  Users,
   Wallet,
   type LucideIcon,
 } from "lucide-react";
@@ -200,13 +202,42 @@ export const NAV_MANIFEST: NavEntry[] = [
     group: "account",
     priority: 15,
   },
+  // Friends and sharing (F1/F3/F4) -- three new low-traffic entries,
+  // priorities appended after everything above rather than interleaved,
+  // so no existing tab-bar slot (priority 1-4) or ordering shifts.
+  {
+    id: "friends",
+    labelKey: "nav.friends",
+    icon: Users,
+    href: "/friends",
+    group: "account",
+    priority: 16,
+  },
+  {
+    id: "shared",
+    labelKey: "nav.shared",
+    icon: Share2,
+    href: "/shared",
+    group: "core",
+    priority: 17,
+  },
+  {
+    id: "settings-sharing",
+    labelKey: "nav.settingsSharing",
+    icon: Share2,
+    href: "/settings/sharing",
+    group: "account",
+    priority: 18,
+  },
 ];
 
 const TAB_BAR_SIZE = 4;
 
 /** The tab bar's fixed slots — the `TAB_BAR_SIZE` lowest-priority entries, in priority order. */
 export function getTabBarEntries(): NavEntry[] {
-  return [...NAV_MANIFEST].sort((a, b) => a.priority - b.priority).slice(0, TAB_BAR_SIZE);
+  return [...NAV_MANIFEST]
+    .sort((a, b) => a.priority - b.priority)
+    .slice(0, TAB_BAR_SIZE);
 }
 
 /** Everything not on the tab bar — what the More sheet renders, still in priority order within each group. */

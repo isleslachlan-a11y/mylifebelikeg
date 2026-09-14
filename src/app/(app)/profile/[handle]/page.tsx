@@ -5,6 +5,7 @@ import { Avatar } from "@/components/avatar";
 import { Badge } from "@/components/ui/badge";
 import { PinnedFlair } from "@/components/pinned-flair";
 import { createClient } from "@/lib/supabase/server";
+import { AddFriendButton } from "./add-friend-button";
 
 /**
  * Someone else's profile (P7.3). `profiles_select`'s own RLS is broad —
@@ -26,6 +27,19 @@ import { createClient } from "@/lib/supabase/server";
  * beyond id/title/kind/state, no `ledger_entries`/`pots`/`cashflow_items`,
  * no `check_ins`/`v_checkin_streak`, no stats block, no full achievement
  * grid (that's `/profile`'s own page, never this one).
+ *
+ * F5 (0044) adds the friendship dimension on top, deliberately
+ * independent of the grant/shared-goal check above: "friendship grants
+ * no access to anything by itself" (0044's own opening philosophy), so
+ * `isFriend` only ever decides whether an "Add friend" button renders
+ * in the minimal view, never whether the expanded view does — a friend
+ * with no grant and a stranger with no grant see the exact same
+ * "nothing to show yet" text, on purpose ("show the minimal view
+ * without explaining why," F5 brief, verbatim). "Dreams and trips"
+ * below "Shared goals" is new too, sourced from `v_shared_with_me_all`
+ * filtered to this profile's own `owner_id` — a genuinely different
+ * concept from "Shared goals" (goal_participants-based mutual
+ * collaboration, P7.3, unchanged), so it's additive, not a replacement.
  */
 export default async function OtherProfilePage({
   params,
@@ -63,6 +77,8 @@ export default async function OtherProfilePage({
   const [
     { data: grant, error: grantError },
     { data: myGoals, error: myGoalsError },
+    { data: friendship, error: friendshipError },
+    { data: theirShares, error: theirSharesError },
   ] = await Promise.all([
     // share_grants_select's RLS (grantor_id = auth.uid() OR grantee_id
     // = auth.uid()) already scopes this to grants the viewer is a party
@@ -82,6 +98,29 @@ export default async function OtherProfilePage({
       .from("goals")
       .select("id, title, kind, state")
       .is("deleted_at", null),
+    // F5: "not friends -> add-friend button... friends without a grant
+    // -> show the minimal view without explaining why" -- both
+    // branches need to know friendship state, distinct from the grant
+    // check above (0044's own "friendship grants no access by itself"
+    // philosophy). friendships_select's RLS (either party) already
+    // scopes this correctly.
+    supabase
+      .from("friendships")
+      .select("status")
+      .or(
+        `and(requester_id.eq.${viewerId},addressee_id.eq.${profile.id}),and(requester_id.eq.${profile.id},addressee_id.eq.${viewerId})`,
+      )
+      .maybeSingle(),
+    // F5: "dreams and trips" alongside shared goals -- everything this
+    // specific person has shared with the viewer via a real grant
+    // (share_grants, 0044), as opposed to "Shared goals" below which is
+    // goal_participants-based mutual collaboration, a different, older
+    // concept (P7.3) this page already covered before F5.
+    supabase
+      .from("v_shared_with_me_all")
+      .select("grant_id, resource_type, resource_id, title")
+      .eq("owner_id", profile.id)
+      .in("resource_type", ["someday_item", "trip"]),
   ]);
 
   if (grantError) {
@@ -90,6 +129,14 @@ export default async function OtherProfilePage({
   if (myGoalsError) {
     throw new Error(myGoalsError.message);
   }
+  if (friendshipError) {
+    throw new Error(friendshipError.message);
+  }
+  if (theirSharesError) {
+    throw new Error(theirSharesError.message);
+  }
+  const isFriend = friendship?.status === "accepted";
+  const hasPendingRequest = friendship?.status === "pending";
 
   const myGoalIds = (myGoals ?? []).map((g) => g.id);
 
@@ -123,7 +170,21 @@ export default async function OtherProfilePage({
   if (!hasRelationship) {
     return (
       <div className="mx-auto flex max-w-2xl flex-col gap-4 p-6">
-        <h1 className="font-display text-3xl">@{profile.handle}</h1>
+        <div className="flex items-center gap-4">
+          <Avatar avatar={profile.avatar} size={64} />
+          <div className="flex flex-col gap-1">
+            <h1 className="font-display text-2xl">{profile.display_name}</h1>
+            <p className="text-muted-foreground text-sm">@{profile.handle}</p>
+          </div>
+        </div>
+        {/* F5: "not friends -> add-friend button. Friends without a
+            grant -> show the minimal view without explaining why" --
+            the button itself is the only thing that differs between
+            those two cases; the explanatory text is deliberately the
+            same either way, never naming which case this is. */}
+        {isFriend || hasPendingRequest ? null : (
+          <AddFriendButton handle={profile.handle} />
+        )}
         <p className="text-muted-foreground text-sm">
           This profile isn&apos;t shared with you — nothing to show yet.
         </p>
@@ -195,6 +256,35 @@ export default async function OtherProfilePage({
           </ul>
         )}
       </section>
+
+      {theirShares && theirShares.length > 0 && (
+        <section className="flex flex-col gap-3">
+          <h2 className="font-display text-xl">Shared with you</h2>
+          <ul className="flex flex-col gap-2">
+            {theirShares.map((s) =>
+              s.resource_type === "trip" && s.resource_id ? (
+                <li key={s.grant_id}>
+                  <Link
+                    href={`/trips/${s.resource_id}`}
+                    className="border-border hover:bg-muted flex items-center justify-between gap-3 rounded-lg border p-3 transition-colors"
+                  >
+                    <span className="truncate text-sm">{s.title}</span>
+                    <Badge variant="outline">Trip</Badge>
+                  </Link>
+                </li>
+              ) : (
+                <li
+                  key={s.grant_id}
+                  className="border-border flex items-center justify-between gap-3 rounded-lg border p-3"
+                >
+                  <span className="truncate text-sm">{s.title}</span>
+                  <Badge variant="outline">Dream</Badge>
+                </li>
+              ),
+            )}
+          </ul>
+        </section>
+      )}
     </div>
   );
 }

@@ -83,6 +83,7 @@ export default async function DreamsPage() {
     { data: lifeAreas, error: lifeAreasError },
     { data: progress, error: progressError },
     { data: profile, error: profileError },
+    { data: sharedDreams, error: sharedDreamsError },
   ] = await Promise.all([
     supabase
       .from("someday_items")
@@ -102,6 +103,16 @@ export default async function DreamsPage() {
       .eq("user_id", userId)
       .maybeSingle(),
     supabase.from("profiles").select("base_currency").eq("id", userId).single(),
+    // F3: "surface shared items in their home lists... a shared dream
+    // in the bucket list grid with an owner marker" (brief, verbatim).
+    // Rendered as its own small read-only section below, not folded
+    // into DreamManager's own grid/dialog state -- there's no per-item
+    // view for someone *else's* dream yet (see /shared's own header
+    // comment), so this can't open the same edit dialog a real row does.
+    supabase
+      .from("v_shared_with_me_all")
+      .select("grant_id, resource_id, title, owner_name")
+      .eq("resource_type", "someday_item"),
   ]);
 
   if (itemsError || !items) {
@@ -127,6 +138,9 @@ export default async function DreamsPage() {
   // rather than a first visit.
   if (profileError) {
     throw new Error(profileError.message);
+  }
+  if (sharedDreamsError) {
+    throw new Error(sharedDreamsError.message);
   }
 
   const promotedIds = items.filter((i) => i.promoted_at).map((i) => i.id);
@@ -204,6 +218,30 @@ export default async function DreamsPage() {
         promotedTripTitles={Object.fromEntries(promotedTripTitles)}
         defaultCurrency={profile?.base_currency ?? "AUD"}
       />
+
+      {sharedDreams && sharedDreams.length > 0 && (
+        <section className="flex flex-col gap-2">
+          <h2 className="font-display text-lg">
+            Shared with you
+            <span className="text-muted-foreground ml-2 text-sm font-normal">
+              {sharedDreams.length}
+            </span>
+          </h2>
+          <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-3">
+            {sharedDreams.map((d) => (
+              <li
+                key={d.grant_id}
+                className="border-subtle flex flex-col gap-1 rounded-lg border p-3"
+              >
+                <span className="truncate text-sm font-medium">{d.title}</span>
+                <span className="text-muted-foreground text-xs">
+                  {d.owner_name}&rsquo;s dream
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </div>
   );
 }

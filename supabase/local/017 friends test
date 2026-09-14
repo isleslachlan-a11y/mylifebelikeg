@@ -1,0 +1,335 @@
+-- LOCAL ONLY. Verifies friendships and generalised resource sharing.
+-- Run after 001_smoke_test.sql.
+\set ON_ERROR_STOP on
+begin;
+
+insert into auth.users (id, email) values
+  ('66666666-6666-6666-6666-666666666666', 'c@example.com');
+insert into profiles (id, handle, display_name) values
+  ('66666666-6666-6666-6666-666666666666', 'user_c', 'User C');
+
+-- ---- friend requests ---------------------------------------------------------
+select set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+
+do $$
+declare v_id uuid; n int;
+begin
+  v_id := app.send_friend_request('user_b');
+  assert v_id is not null, 'request should return an id';
+
+  assert not app.are_friends('11111111-1111-1111-1111-111111111111',
+                             '22222222-2222-2222-2222-222222222222'),
+    'a pending request is not a friendship';
+
+  -- the addressee is notified
+  select count(*) into n from llama_messages
+   where user_id = '22222222-2222-2222-2222-222222222222'
+     and trigger_code = 'friend_request';
+  assert n = 1, format('addressee should be notified, got %s', n);
+end $$;
+
+-- duplicate request refused
+do $$
+begin
+  begin
+    perform app.send_friend_request('user_b');
+    assert false, 'duplicate request should be refused';
+  exception when unique_violation then null;
+  end;
+end $$;
+
+-- self-request refused
+do $$
+begin
+  begin
+    perform app.send_friend_request('user_a');
+    assert false, 'self-request should be refused';
+  exception when check_violation then null;
+  end;
+end $$;
+
+-- ---- accepting ---------------------------------------------------------------
+select set_config('request.jwt.claim.sub', '22222222-2222-2222-2222-222222222222', false);
+
+do $$
+declare r record; n int;
+begin
+  select * into r from v_friend_requests where is_incoming;
+  assert r.id is not null, 'B should see an incoming request';
+  assert r.handle = 'user_a', format('request should be from user_a, got %s', r.handle);
+
+  perform app.respond_to_friend_request(r.id, true);
+
+  assert app.are_friends('11111111-1111-1111-1111-111111111111',
+                         '22222222-2222-2222-2222-222222222222'),
+    'they should now be friends';
+
+  select count(*) into n from v_friends;
+  assert n = 1, format('B should have 1 friend, got %s', n);
+end $$;
+
+-- a non-addressee cannot accept
+do $$
+declare v_id uuid;
+begin
+  perform set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+  v_id := app.send_friend_request('user_c');
+
+  -- B tries to accept a request sent to C
+  perform set_config('request.jwt.claim.sub', '22222222-2222-2222-2222-222222222222', false);
+  begin
+    perform app.respond_to_friend_request(v_id, true);
+    assert false, 'only the addressee may accept';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+-- ---- friendship grants NO resource access ------------------------------------
+select set_config('request.jwt.claim.sub', '22222222-2222-2222-2222-222222222222', false);
+
+do $$
+declare n int;
+begin
+  -- A has a someday item ("Patagonia") and auto_share_someday defaults to false.
+  select count(*) into n from share_grants
+   where resource_type = 'someday_item' and grantee_id = '22222222-2222-2222-2222-222222222222'
+     and revoked_at is null;
+  assert n = 0, format('friendship alone must not share dreams, got %s grants', n);
+end $$;
+
+-- profile auto-share defaults to ON, so that one grant should exist
+do $$
+declare n int;
+begin
+  select count(*) into n from share_grants
+   where resource_type = 'profile' and grantee_id = '22222222-2222-2222-2222-222222222222'
+     and grantor_id = '11111111-1111-1111-1111-111111111111' and revoked_at is null;
+  assert n = 1, format('profile auto-share should apply on accept, got %s', n);
+end $$;
+
+-- ---- explicit sharing of a dream ---------------------------------------------
+select set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+
+do $$
+declare si record; v_id uuid; n int;
+begin
+  select * into si from someday_items where title = 'Patagonia';
+
+  v_id := app.share_resource('someday_item', si.id, '22222222-2222-2222-2222-222222222222', 'view');
+  assert v_id is not null, 'share should return a grant id';
+
+  select count(*) into n from llama_messages
+   where user_id = '22222222-2222-2222-2222-222222222222'
+     and trigger_code = 'resource_shared_with_you';
+  assert n = 1, 'recipient should be notified';
+end $$;
+
+-- recipient can now see it
+select set_config('request.jwt.claim.sub', '22222222-2222-2222-2222-222222222222', false);
+do $$
+declare si record; n int;
+begin
+  select * into si from someday_items where title = 'Patagonia';
+  assert app.has_grant('someday_item', si.id, 'view'), 'grantee should have view access';
+  assert not app.has_grant('someday_item', si.id, 'edit'), 'view scope is not edit';
+
+  select count(*) into n from v_shared_with_me_all where resource_type = 'someday_item';
+  assert n = 1, format('shared dream should be listed, got %s', n);
+end $$;
+
+-- ---- you can only share what you own -----------------------------------------
+do $$
+declare si record;
+begin
+  select * into si from someday_items where title = 'Patagonia';  -- owned by A
+  begin
+    perform app.share_resource('someday_item', si.id, '66666666-6666-6666-6666-666666666666', 'view');
+    assert false, 'B must not be able to share A''s dream';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+-- ---- goal view-grant gives read access without participation -----------------
+select set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+do $$
+begin
+  perform app.share_resource('goal', 'bbbbbbbb-0000-0000-0000-000000000003',
+                             '66666666-6666-6666-6666-666666666666', 'view');
+end $$;
+
+select set_config('request.jwt.claim.sub', '66666666-6666-6666-6666-666666666666', false);
+do $$
+declare n int;
+begin
+  assert app.can_view_goal('bbbbbbbb-0000-0000-0000-000000000003'),
+    'a view grant should give read access';
+  assert not app.can_edit_goal('bbbbbbbb-0000-0000-0000-000000000003'),
+    'a view grant must not give edit access';
+
+  -- and crucially, they are NOT a participant
+  select count(*) into n from goal_participants
+   where goal_id = 'bbbbbbbb-0000-0000-0000-000000000003'
+     and user_id = '66666666-6666-6666-6666-666666666666' and removed_at is null;
+  assert n = 0, 'a view grant must not create a participant';
+end $$;
+
+-- an edit grant does give edit access
+select set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+do $$
+begin
+  perform app.share_resource('goal', 'bbbbbbbb-0000-0000-0000-000000000003',
+                             '66666666-6666-6666-6666-666666666666', 'edit');
+end $$;
+
+select set_config('request.jwt.claim.sub', '66666666-6666-6666-6666-666666666666', false);
+do $$
+begin
+  assert app.can_edit_goal('bbbbbbbb-0000-0000-0000-000000000003'),
+    'an edit grant should give edit access';
+end $$;
+
+-- ---- revoking ----------------------------------------------------------------
+select set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+do $$
+begin
+  perform app.unshare_resource('goal', 'bbbbbbbb-0000-0000-0000-000000000003',
+                               '66666666-6666-6666-6666-666666666666');
+end $$;
+
+select set_config('request.jwt.claim.sub', '66666666-6666-6666-6666-666666666666', false);
+do $$
+begin
+  assert not app.can_view_goal('bbbbbbbb-0000-0000-0000-000000000003'),
+    'revoking should remove access immediately';
+end $$;
+
+-- re-sharing reactivates rather than duplicating
+select set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+do $$
+declare n int;
+begin
+  perform app.share_resource('goal', 'bbbbbbbb-0000-0000-0000-000000000003',
+                             '66666666-6666-6666-6666-666666666666', 'view');
+  select count(*) into n from share_grants
+   where resource_type = 'goal' and resource_id = 'bbbbbbbb-0000-0000-0000-000000000003'
+     and grantee_id = '66666666-6666-6666-6666-666666666666';
+  assert n = 1, format('re-share should reactivate, not duplicate: %s rows', n);
+end $$;
+
+-- ---- the recipient can opt out -----------------------------------------------
+select set_config('request.jwt.claim.sub', '66666666-6666-6666-6666-666666666666', false);
+do $$
+begin
+  perform app.unshare_resource('goal', 'bbbbbbbb-0000-0000-0000-000000000003',
+                               '66666666-6666-6666-6666-666666666666');
+  assert not app.can_view_goal('bbbbbbbb-0000-0000-0000-000000000003'),
+    'a recipient should be able to remove their own access';
+end $$;
+
+-- ---- auto-share preference ---------------------------------------------------
+select set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+do $$
+declare n int; v_id uuid;
+begin
+  update profiles set auto_share_someday = true
+   where id = '11111111-1111-1111-1111-111111111111';
+
+  insert into someday_items (user_id, title)
+  values ('11111111-1111-1111-1111-111111111111', 'Iceland')
+  returning id into v_id;
+
+  select count(*) into n from share_grants
+   where resource_type = 'someday_item' and resource_id = v_id
+     and grantee_id = '22222222-2222-2222-2222-222222222222' and revoked_at is null;
+  assert n = 1, 'a new dream should auto-share with friends when enabled';
+end $$;
+
+-- with the preference off, nothing is shared
+do $$
+declare n int; v_id uuid;
+begin
+  update profiles set auto_share_someday = false
+   where id = '11111111-1111-1111-1111-111111111111';
+
+  insert into someday_items (user_id, title)
+  values ('11111111-1111-1111-1111-111111111111', 'Private dream')
+  returning id into v_id;
+
+  select count(*) into n from share_grants
+   where resource_type = 'someday_item' and resource_id = v_id and revoked_at is null;
+  assert n = 0, 'with auto-share off, nothing should be shared';
+end $$;
+
+-- ---- share with all friends --------------------------------------------------
+do $$
+declare si record; n int;
+begin
+  select * into si from someday_items where title = 'Private dream';
+  n := app.share_with_all_friends('someday_item', si.id, 'view');
+  assert n >= 1, format('should have shared with at least one friend, got %s', n);
+end $$;
+
+-- ---- unfriending revokes ------------------------------------------------------
+do $$
+declare n int;
+begin
+  perform app.unfriend('22222222-2222-2222-2222-222222222222');
+
+  assert not app.are_friends('11111111-1111-1111-1111-111111111111',
+                             '22222222-2222-2222-2222-222222222222'),
+    'they should no longer be friends';
+
+  select count(*) into n from share_grants
+   where revoked_at is null
+     and ((grantor_id = '11111111-1111-1111-1111-111111111111'
+           and grantee_id = '22222222-2222-2222-2222-222222222222')
+       or (grantor_id = '22222222-2222-2222-2222-222222222222'
+           and grantee_id = '11111111-1111-1111-1111-111111111111'));
+  assert n = 0, format('unfriending should revoke shares both ways, %s remain', n);
+end $$;
+
+-- ---- blocking ----------------------------------------------------------------
+do $$
+begin
+  perform app.block_user('22222222-2222-2222-2222-222222222222');
+  assert app.is_blocked_between('11111111-1111-1111-1111-111111111111',
+                                '22222222-2222-2222-2222-222222222222'),
+    'block should be recorded';
+end $$;
+
+-- a blocked person cannot send a request
+select set_config('request.jwt.claim.sub', '22222222-2222-2222-2222-222222222222', false);
+do $$
+begin
+  begin
+    perform app.send_friend_request('user_a');
+    assert false, 'a blocked user should not be able to send a request';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+-- and cannot be shared with
+select set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+do $$
+declare si record;
+begin
+  select * into si from someday_items where title = 'Iceland';
+  begin
+    perform app.share_resource('someday_item', si.id,
+                               '22222222-2222-2222-2222-222222222222', 'view');
+    assert false, 'should not be able to share with a blocked user';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+-- unblocking clears it
+do $$
+begin
+  perform app.unblock_user('22222222-2222-2222-2222-222222222222');
+  assert not app.is_blocked_between('11111111-1111-1111-1111-111111111111',
+                                    '22222222-2222-2222-2222-222222222222'),
+    'unblock should clear the block';
+end $$;
+
+rollback;
+select 'FRIENDS AND SHARING VERIFIED' as result;

@@ -23,6 +23,7 @@ import { MilestonesSection } from "./milestones-section";
 import { MomentumSection } from "./momentum-section";
 import { OverrideSection } from "./override-section";
 import { ParticipantsSection } from "./participants-section";
+import { ShareControl } from "@/components/sharing/share-control";
 import { RagBreakdown } from "./rag-breakdown";
 import { SlipPreview } from "./slip-preview";
 import { TasksSection } from "./tasks-section";
@@ -603,6 +604,21 @@ export default async function GoalDetailPage({
             owner={{ id: goal.owner_id, ...ownerProfile }}
             initialParticipants={nonOwnerParticipants}
           />
+          {/* F2: view-only friend sharing -- a genuinely different
+              mechanism from participants above (S1), not a second way
+              to do the same thing. "Read-only, not a participant"
+              (F2 brief) is why this gets its own trigger, distinctly
+              labelled, rather than folding into the Share button
+              above. */}
+          <div className="flex flex-col gap-1">
+            <ShareControl
+              resourceType="goal"
+              resourceId={goal.id}
+              isOwner={isOwner}
+              path={`/goals/${goal.id}`}
+              triggerLabel="Share view access with a friend"
+            />
+          </div>
         </section>
       )}
 

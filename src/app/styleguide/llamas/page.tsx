@@ -59,6 +59,9 @@ const EXAMPLES: { [K in TriggerCode]: TriggerParams[K] } = {
     currency: "AUD",
   },
   goal_shared_with_you: { goalTitle: "Japan 2027", ownerName: "Sophia" },
+  friend_request: { requesterName: "Sophia" },
+  friend_accepted: { accepterName: "Sophia" },
+  resource_shared_with_you: {},
 };
 
 // Every variant, rendered — not a random pick — so all copy is reviewable

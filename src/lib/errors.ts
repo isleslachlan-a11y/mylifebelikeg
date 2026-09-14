@@ -81,8 +81,7 @@ const CONSTRAINT_MESSAGES: Record<string, string> = {
     "Something went wrong with that photo — try uploading it again.",
   achieved_photo_needs_achieved_at:
     "Mark the dream as achieved before adding a photo of it.",
-  achieved_xor_archived:
-    "A dream can't be both achieved and archived.",
+  achieved_xor_archived: "A dream can't be both achieved and archived.",
   // P6.3, confirmed against the live schema (same `supabase db dump`
   // technique as P6.1's entries above).
   trips_origin_lat_check: "Latitude must be between -90 and 90.",
@@ -214,6 +213,39 @@ const INVALID_EMAIL_RE = /doesn't look like a valid email address/i;
 const EMAIL_HAS_ACCOUNT_RE = /invite them by handle instead/i;
 const INVITATION_INVALID_RE = /this invitation is invalid or has expired/i;
 
+// Friends and sharing (migration 0044) -- app.send_friend_request/
+// respond_to_friend_request/share_resource/unshare_resource/
+// share_with_all_friends, same "raised text, not SQLSTATE" reasoning
+// as the goal-sharing block above (this package reuses several of the
+// same codes for different meanings too -- e.g. a friend request's
+// self-check and a share's self-check are both check_violation). F1's
+// own error table, verbatim: no_data_found -> "No one's using that
+// handle." (NO_HANDLE_RE above already covers this, shared with
+// invite_by_handle), unique_violation -> "Already friends, or a
+// request is pending.", check_violation -> "That's you.",
+// insufficient_privilege -> "Friend request can't be sent." (the
+// block case -- "don't explain why", brief verbatim, so this message
+// stays as vague as the one it's translating).
+const FRIEND_SELF_RE = /that's you\./i;
+const FRIEND_ALREADY_OR_PENDING_RE =
+  /already friends, or a request is pending/i;
+const FRIEND_REQUEST_BLOCKED_RE = /friend request can't be sent/i;
+const FRIEND_REQUEST_NOT_FOUND_RE = /^request not found\.?$/i;
+const FRIEND_NOT_ADDRESSEE_RE = /only the addressee may respond/i;
+const FRIEND_REQUEST_RESOLVED_RE = /this request has already been resolved/i;
+
+// F2's own share_resource/unshare_resource messages -- "app.share_resource
+// raises insufficient_privilege otherwise, but don't offer what will
+// fail" (brief, verbatim) means this mapping is defense in depth for a
+// stale client (ShareControl only ever renders for the resource owner
+// to begin with), same posture P7.1's avatar-lock mappings already take.
+const SHARE_SELF_RE = /you can't share something with yourself/i;
+const SHARE_OWNER_ONLY_RE = /only the owner can share this/i;
+const SHARE_BLOCKED_RE = /this can't be shared with them/i;
+const SHARE_NOT_FOUND_RE = /no active share to revoke/i;
+const SHARE_REVOKE_UNAUTHORIZED_RE =
+  /only the person who shared this, or the person it was shared with/i;
+
 /** Map a Postgres/PostgREST error to a user-facing sentence. Logs the original for unmatched cases. */
 export function humanizeDbError(
   error: Pick<PostgrestError, "message" | "details">,
@@ -297,6 +329,39 @@ export function humanizeDbError(
   }
   if (INVITATION_INVALID_RE.test(error.message)) {
     return "This invitation is invalid or has expired.";
+  }
+  if (FRIEND_ALREADY_OR_PENDING_RE.test(error.message)) {
+    return "Already friends, or a request is pending.";
+  }
+  if (FRIEND_REQUEST_BLOCKED_RE.test(error.message)) {
+    return "Friend request can't be sent.";
+  }
+  if (FRIEND_SELF_RE.test(error.message)) {
+    return "That's you.";
+  }
+  if (FRIEND_REQUEST_NOT_FOUND_RE.test(error.message)) {
+    return "That request no longer exists.";
+  }
+  if (FRIEND_NOT_ADDRESSEE_RE.test(error.message)) {
+    return "You can't respond to that request.";
+  }
+  if (FRIEND_REQUEST_RESOLVED_RE.test(error.message)) {
+    return "That request has already been resolved.";
+  }
+  if (SHARE_SELF_RE.test(error.message)) {
+    return "You can't share something with yourself.";
+  }
+  if (SHARE_OWNER_ONLY_RE.test(error.message)) {
+    return "Only the owner can share this.";
+  }
+  if (SHARE_BLOCKED_RE.test(error.message)) {
+    return "This can't be shared with them.";
+  }
+  if (SHARE_NOT_FOUND_RE.test(error.message)) {
+    return "That share is no longer active.";
+  }
+  if (SHARE_REVOKE_UNAUTHORIZED_RE.test(error.message)) {
+    return "You don't have permission to revoke that share.";
   }
 
   console.error(

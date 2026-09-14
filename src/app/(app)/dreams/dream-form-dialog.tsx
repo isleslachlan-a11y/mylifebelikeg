@@ -30,6 +30,7 @@ import { UnsplashPhotoPreview } from "@/components/unsplash/unsplash-photo-previ
 import { ImageUpload } from "@/components/image-upload";
 import { LlamaMessage } from "@/components/llama-message";
 import { ShareCardButton } from "@/components/share-card-button";
+import { ShareControl } from "@/components/sharing/share-control";
 import {
   describeDreamAffordability,
   type DreamAffordabilityRow,
@@ -111,7 +112,10 @@ type FormState = {
   mapboxPlaceId: string | null;
 };
 
-function emptyForm(defaultCurrency: string, kind: DreamKind = "place"): FormState {
+function emptyForm(
+  defaultCurrency: string,
+  kind: DreamKind = "place",
+): FormState {
   return {
     title: "",
     kind,
@@ -153,7 +157,8 @@ function formFromItem(
 
 function toPhotoInput(photo: PhotoSelection): PhotoInput {
   if (!photo) return null;
-  if (photo.source === "unsplash") return { source: "unsplash", photo: photo.photo };
+  if (photo.source === "unsplash")
+    return { source: "unsplash", photo: photo.photo };
   return { source: "upload", storagePath: photo.storagePath };
 }
 
@@ -236,7 +241,8 @@ export function DreamFormDialog({
   // when the dream has no price yet (v_dream_affordability's own WHERE
   // clause also excludes achieved/archived dreams, so this doubles as
   // "nothing to show" for those cases too, no separate check needed).
-  const [affordability, setAffordability] = useState<DreamAffordabilityRow | null>(null);
+  const [affordability, setAffordability] =
+    useState<DreamAffordabilityRow | null>(null);
   const [isPromotingToGoal, startPromoteTransition] = useTransition();
   const [promoteError, setPromoteError] = useState<string | null>(null);
   // P8.4: the achieved photo's signed URL and the un-achieve action's
@@ -617,7 +623,9 @@ export function DreamFormDialog({
               />
             ) : (
               <PhotoPicker
-                onSelect={(photo) => patch({ photo: { source: "unsplash", photo } })}
+                onSelect={(photo) =>
+                  patch({ photo: { source: "unsplash", photo } })
+                }
               />
             )}
 
@@ -660,6 +668,18 @@ export function DreamFormDialog({
             />
           </div>
 
+          {/* F2: view-only friend sharing -- every dream is always
+              your own (this dialog never opens for someone else's), so
+              isOwner is unconditionally true here. */}
+          {mode === "edit" && item && (
+            <ShareControl
+              resourceType="someday_item"
+              resourceId={item.id}
+              isOwner
+              path="/dreams"
+            />
+          )}
+
           {/* P8.4: "achieved is not promoted... promoting is the dream
               becoming a plan; achieving is having it" (brief, verbatim) --
               this section is independent of the promotion one above and
@@ -679,23 +699,35 @@ export function DreamFormDialog({
                   <div className="ring-foreground/10 aspect-square overflow-hidden rounded-lg ring-1">
                     {dreamPhotoUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={dreamPhotoUrl} alt="" className="size-full object-cover" />
+                      <img
+                        src={dreamPhotoUrl}
+                        alt=""
+                        className="size-full object-cover"
+                      />
                     ) : (
                       <div className="bg-muted size-full" />
                     )}
                   </div>
-                  <p className="text-muted-foreground text-center text-xs">Wanted</p>
+                  <p className="text-muted-foreground text-center text-xs">
+                    Wanted
+                  </p>
                 </div>
                 <div className="flex flex-col gap-1">
                   <div className="ring-foreground/10 aspect-square overflow-hidden rounded-lg ring-1">
                     {achievedPhotoUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={achievedPhotoUrl} alt="" className="size-full object-cover" />
+                      <img
+                        src={achievedPhotoUrl}
+                        alt=""
+                        className="size-full object-cover"
+                      />
                     ) : (
                       <div className="bg-muted size-full" />
                     )}
                   </div>
-                  <p className="text-muted-foreground text-center text-xs">Achieved</p>
+                  <p className="text-muted-foreground text-center text-xs">
+                    Achieved
+                  </p>
                 </div>
               </div>
 
@@ -707,7 +739,9 @@ export function DreamFormDialog({
               </p>
 
               {item.achieved_note && (
-                <p className="text-muted-foreground text-sm">{item.achieved_note}</p>
+                <p className="text-muted-foreground text-sm">
+                  {item.achieved_note}
+                </p>
               )}
 
               {/* P8.6: "an achieved dream produces a card that looks
@@ -742,7 +776,7 @@ export function DreamFormDialog({
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="max-md:h-11 w-fit"
+                className="w-fit max-md:h-11"
                 disabled={isUnachieving}
                 onClick={handleUnachieve}
               >
@@ -757,7 +791,7 @@ export function DreamFormDialog({
                 type="button"
                 variant="outline"
                 size="sm"
-                className="max-md:h-11 w-fit"
+                className="w-fit max-md:h-11"
                 onClick={onRequestAchieve}
               >
                 Mark achieved
@@ -815,71 +849,83 @@ export function DreamFormDialog({
                 priceFields
               )}
 
-              {mode === "edit" && item && item.rough_cost_minor != null && item.currency && (
-                <div className="flex flex-col gap-2">
-                  {isPromotedToGoal ? (
-                    <div className="flex items-center gap-2">
-                      <Badge variant="default" className="bg-rag-green text-deep">
-                        Promoted to goal
-                      </Badge>
-                      <Link
-                        href={`/goals/${item.promoted_goal_id}`}
-                        className="text-primary text-xs underline underline-offset-2"
-                      >
-                        View goal →
-                      </Link>
-                    </div>
-                  ) : (
-                    <>
-                      {affordability && (
-                        <>
-                          {/* "Show both the original and the base-currency
-                              conversion" (P8.3 brief, verbatim). */}
-                          <p className="text-muted-foreground text-xs">
-                            {formatMoney(item.rough_cost_minor, item.currency)}
-                            {affordability.cost_base_currency &&
-                              affordability.cost_base_minor != null &&
-                              affordability.cost_base_currency !== item.currency && (
-                                <>
-                                  {" "}
-                                  (~
-                                  {formatMoney(
-                                    affordability.cost_base_minor,
-                                    affordability.cost_base_currency,
-                                  )}
-                                  )
-                                </>
-                              )}
-                          </p>
-                          <LlamaMessage
-                            speaker="derek"
-                            body={describeDreamAffordability(affordability)}
-                          />
-                        </>
-                      )}
-
-                      {promoteError && (
-                        <p role="alert" className="text-destructive text-xs">
-                          {promoteError}
-                        </p>
-                      )}
-
-                      {!item.achieved_at && !item.archived_at && (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="max-md:h-11 w-fit"
-                          disabled={isPromotingToGoal}
-                          onClick={handlePromoteToGoal}
+              {mode === "edit" &&
+                item &&
+                item.rough_cost_minor != null &&
+                item.currency && (
+                  <div className="flex flex-col gap-2">
+                    {isPromotedToGoal ? (
+                      <div className="flex items-center gap-2">
+                        <Badge
+                          variant="default"
+                          className="bg-rag-green text-deep"
                         >
-                          {isPromotingToGoal ? "Promoting…" : "Promote to goal"}
-                        </Button>
-                      )}
-                    </>
-                  )}
-                </div>
-              )}
+                          Promoted to goal
+                        </Badge>
+                        <Link
+                          href={`/goals/${item.promoted_goal_id}`}
+                          className="text-primary text-xs underline underline-offset-2"
+                        >
+                          View goal →
+                        </Link>
+                      </div>
+                    ) : (
+                      <>
+                        {affordability && (
+                          <>
+                            {/* "Show both the original and the base-currency
+                              conversion" (P8.3 brief, verbatim). */}
+                            <p className="text-muted-foreground text-xs">
+                              {formatMoney(
+                                item.rough_cost_minor,
+                                item.currency,
+                              )}
+                              {affordability.cost_base_currency &&
+                                affordability.cost_base_minor != null &&
+                                affordability.cost_base_currency !==
+                                  item.currency && (
+                                  <>
+                                    {" "}
+                                    (~
+                                    {formatMoney(
+                                      affordability.cost_base_minor,
+                                      affordability.cost_base_currency,
+                                    )}
+                                    )
+                                  </>
+                                )}
+                            </p>
+                            <LlamaMessage
+                              speaker="derek"
+                              body={describeDreamAffordability(affordability)}
+                            />
+                          </>
+                        )}
+
+                        {promoteError && (
+                          <p role="alert" className="text-destructive text-xs">
+                            {promoteError}
+                          </p>
+                        )}
+
+                        {!item.achieved_at && !item.archived_at && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="w-fit max-md:h-11"
+                            disabled={isPromotingToGoal}
+                            onClick={handlePromoteToGoal}
+                          >
+                            {isPromotingToGoal
+                              ? "Promoting…"
+                              : "Promote to goal"}
+                          </Button>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
 
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="dream-life-area">Life area</Label>

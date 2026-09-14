@@ -42,6 +42,8 @@ declare
     'rag_override_history', 'rag_snapshots', 'share_grants',
     'someday_items', 'task_dependencies', 'tasks', 'trip_legs',
     'trip_stops', 'trips', 'user_achievements',
+    -- Friends and sharing (0044)
+    'friendships', 'user_blocks',
     -- views
     'v_allocation_summary', 'v_available_presets', 'v_checkin_streak',
     'v_countries_visited', 'v_critical_path', 'v_dream_affordability',
@@ -52,7 +54,9 @@ declare
     'v_someday_progress', 'v_timeline_items', 'v_trip_estimates',
     'v_user_capacity',
     -- Goal sharing (0043)
-    'v_shared_with_me', 'v_goal_participants_detail', 'v_pending_invitations'
+    'v_shared_with_me', 'v_goal_participants_detail', 'v_pending_invitations',
+    -- Friends and sharing (0044)
+    'v_friends', 'v_friend_requests', 'v_shared_with_me_all', 'v_my_shares'
   ];
 begin
   for v_row in
@@ -124,18 +128,25 @@ insert into goals (id, owner_id, kind, title, funding, currency, target_amount_m
   ('a0000000-0000-0000-0000-000000000010', '44444444-4444-4444-4444-444444444444', 'standard', 'A''s granted goal', 'save_toward', 'AUD', 200000, current_date),
   ('a0000000-0000-0000-0000-000000000011', '44444444-4444-4444-4444-444444444444', 'trip', 'A''s private trip', 'save_toward', 'AUD', 300000, current_date);
 
+-- 0044: goal 10 (the one that gets granted to C below) gets its own
+-- task/ledger/rag_snapshot fixtures, alongside goal 11's pre-existing
+-- ones -- PART 5 needs something real on the *granted* goal to prove
+-- a view grant now positively reaches it, not just that goal 11 (never
+-- granted) still doesn't leak.
 insert into milestones (id, goal_id, title, due_date) values
   ('a0000000-0000-0000-0000-000000000020', 'a0000000-0000-0000-0000-000000000011', 'A''s milestone', current_date + 30);
 
 insert into tasks (id, goal_id, milestone_id, owner_id, title, offset_days, duration_days) values
   ('a0000000-0000-0000-0000-000000000021', 'a0000000-0000-0000-0000-000000000011', 'a0000000-0000-0000-0000-000000000020', '44444444-4444-4444-4444-444444444444', 'A''s task one', 0, 3),
-  ('a0000000-0000-0000-0000-000000000022', 'a0000000-0000-0000-0000-000000000011', 'a0000000-0000-0000-0000-000000000020', '44444444-4444-4444-4444-444444444444', 'A''s task two', 3, 2);
+  ('a0000000-0000-0000-0000-000000000022', 'a0000000-0000-0000-0000-000000000011', 'a0000000-0000-0000-0000-000000000020', '44444444-4444-4444-4444-444444444444', 'A''s task two', 3, 2),
+  ('a0000000-0000-0000-0000-000000000024', 'a0000000-0000-0000-0000-000000000010', null, '44444444-4444-4444-4444-444444444444', 'A''s task on the granted goal', 0, 2);
 
 insert into task_dependencies (id, predecessor_task_id, successor_task_id) values
   ('a0000000-0000-0000-0000-000000000023', 'a0000000-0000-0000-0000-000000000021', 'a0000000-0000-0000-0000-000000000022');
 
 insert into ledger_entries (id, user_id, goal_id, entry_type, amount_minor, currency, base_currency, base_amount_minor, fx_rate_applied) values
-  ('a0000000-0000-0000-0000-000000000030', '44444444-4444-4444-4444-444444444444', 'a0000000-0000-0000-0000-000000000011', 'contribution', 10000, 'AUD', 'AUD', 10000, 1);
+  ('a0000000-0000-0000-0000-000000000030', '44444444-4444-4444-4444-444444444444', 'a0000000-0000-0000-0000-000000000011', 'contribution', 10000, 'AUD', 'AUD', 10000, 1),
+  ('a0000000-0000-0000-0000-000000000031', '44444444-4444-4444-4444-444444444444', 'a0000000-0000-0000-0000-000000000010', 'contribution', 5000, 'AUD', 'AUD', 5000, 1);
 
 insert into check_ins (id, user_id, period_start, period_end, submitted_at) values
   ('a0000000-0000-0000-0000-000000000040', '44444444-4444-4444-4444-444444444444', current_date - 6, current_date, now());
@@ -150,7 +161,8 @@ insert into someday_items (id, user_id, title, kind) values
 -- same reasoning src/lib/supabase/service.ts's own doc gives) --
 -- inserted directly here the same way a trigger would.
 insert into rag_snapshots (id, goal_id, schedule_status, budget_status, momentum_status, overall_status) values
-  ('a0000000-0000-0000-0000-000000000060', 'a0000000-0000-0000-0000-000000000011', 'green', 'green', 'green', 'green');
+  ('a0000000-0000-0000-0000-000000000060', 'a0000000-0000-0000-0000-000000000011', 'green', 'green', 'green', 'green'),
+  ('a0000000-0000-0000-0000-000000000062', 'a0000000-0000-0000-0000-000000000010', 'green', 'green', 'green', 'green');
 
 insert into rag_override_history (id, goal_id, status, reason, set_by, set_at, expires_at) values
   ('a0000000-0000-0000-0000-000000000061', 'a0000000-0000-0000-0000-000000000011', 'amber', 'A''s own reason', '44444444-4444-4444-4444-444444444444', now(), now() + interval '14 days');
@@ -504,12 +516,26 @@ select set_config('request.jwt.claim.sub', '55555555-5555-5555-5555-555555555555
 
 -- =============================================================================
 -- PART 5: the share grant. C reads the granted goal and gets it. C
--- reads A's other goal and gets nothing. C reads A's ledger, check-ins
--- and dreams and gets nothing beyond what the grant covers (0037's own
--- decision: a goal-level grant unlocks the bare goals row only). C
--- cannot write to the granted goal, regardless of the grant's scope --
--- that's the explicit, asserted decision this package makes rather than
--- discovering later.
+-- reads A's other goal and gets nothing.
+--
+-- 0044 (friends and sharing) reopened 0037's original decision here,
+-- deliberately, not by accident: a goal-level grant now unlocks tasks,
+-- milestones, ledger entries and RAG snapshots too, via the same
+-- can_view_goal/can_edit_goal those tables' own RLS already reads
+-- through -- 0037's original "the grant unlocks the bare goals row
+-- only" no longer holds, and the four assertions below that used to
+-- say LEAK for those tables now assert the opposite, on purpose.
+--
+-- What's still excluded, because the friends-and-sharing brief's own
+-- "what still isn't shared" section says so in as many words
+-- ("per-goal ratings are visible to that goal's participants" --
+-- participants, not grant-holders): goal_ratings and the participant
+-- list itself (v_goal_participants_detail/v_shared_with_me), both
+-- switched in 0044 to a narrower app.is_goal_owner_or_participant
+-- that deliberately does not consult has_grant. check_ins, someday_items
+-- and pots were never gated by can_view_goal at all (check_ins_all is
+-- user_id = auth.uid() only; the others are unrelated resources), so
+-- those three assertions are unchanged.
 -- =============================================================================
 select set_config('request.jwt.claim.sub', '33333333-3333-3333-3333-333333333333', false);
 
@@ -522,31 +548,42 @@ begin
   select count(*) into n from goals where id = 'a0000000-0000-0000-0000-000000000011';
   assert n = 0, 'LEAK: C sees A''s other (ungranted) goal';
 
-  -- Beyond the bare row: nothing. The grant does not cascade to tasks,
-  -- milestones, ledger, check-ins, ratings, RAG, or dreams -- that's
-  -- goal_participants' job, which C does not have.
-  select count(*) into n from tasks where goal_id = 'a0000000-0000-0000-0000-000000000010';
-  assert n = 0, 'LEAK: C sees tasks via a bare goal grant';
-  select count(*) into n from milestones where goal_id = 'a0000000-0000-0000-0000-000000000010';
-  assert n = 0, 'LEAK: C sees milestones via a bare goal grant';
-  select count(*) into n from ledger_entries where goal_id in ('a0000000-0000-0000-0000-000000000010','a0000000-0000-0000-0000-000000000011');
-  assert n = 0, 'LEAK: C sees A''s ledger via the goal grant';
+  -- 0044: now allowed, deliberately -- a view grant reaches the
+  -- *granted* goal's own plan and spend (tasks/ledger/RAG), the same
+  -- surface an edit grant can now also write to. Checked against goal
+  -- 10's own fixtures (added alongside this change), not goal 11's --
+  -- goal 11 was never granted, so its data staying invisible below is
+  -- the actual leak check, not a stand-in for "nothing changed here".
+  select count(*) into n from tasks where id = 'a0000000-0000-0000-0000-000000000024';
+  assert n = 1, 'EXPECTED (0044): a view grant should reach the granted goal''s own task now';
+  select count(*) into n from ledger_entries where id = 'a0000000-0000-0000-0000-000000000031';
+  assert n = 1, 'EXPECTED (0044): a view grant should reach the granted goal''s own ledger entry now';
+  select count(*) into n from rag_snapshots where id = 'a0000000-0000-0000-0000-000000000062';
+  assert n = 1, 'EXPECTED (0044): a view grant should reach the granted goal''s own RAG snapshot now';
+
+  -- Goal 11 was never granted to C -- still fully invisible, same as
+  -- before 0044. This is the real leak check for this block now.
+  select count(*) into n from tasks where goal_id = 'a0000000-0000-0000-0000-000000000011';
+  assert n = 0, 'LEAK: C sees tasks on A''s *other* (ungranted) goal';
+  select count(*) into n from milestones where goal_id = 'a0000000-0000-0000-0000-000000000011';
+  assert n = 0, 'LEAK: C sees milestones on A''s *other* (ungranted) goal';
+  select count(*) into n from ledger_entries where goal_id = 'a0000000-0000-0000-0000-000000000011';
+  assert n = 0, 'LEAK: C sees ledger entries on A''s *other* (ungranted) goal';
+  select count(*) into n from rag_snapshots where goal_id = 'a0000000-0000-0000-0000-000000000011';
+  assert n = 0, 'LEAK: C sees RAG snapshots on A''s *other* (ungranted) goal';
   select count(*) into n from check_ins where id = 'a0000000-0000-0000-0000-000000000040';
-  assert n = 0, 'LEAK: C sees A''s check-ins via the goal grant';
+  assert n = 0, 'LEAK: C sees A''s check-ins via the goal grant (check_ins is never gated by can_view_goal)';
   select count(*) into n from goal_ratings where goal_id in ('a0000000-0000-0000-0000-000000000010','a0000000-0000-0000-0000-000000000011');
-  assert n = 0, 'LEAK: C sees A''s goal ratings via the goal grant';
-  select count(*) into n from rag_snapshots where goal_id in ('a0000000-0000-0000-0000-000000000010','a0000000-0000-0000-0000-000000000011');
-  assert n = 0, 'LEAK: C sees A''s RAG snapshots via the goal grant';
+  assert n = 0, 'LEAK: C sees A''s goal ratings via the goal grant -- still excluded (0044''s deliberate carve-out)';
   select count(*) into n from someday_items where user_id = '44444444-4444-4444-4444-444444444444';
   assert n = 0, 'LEAK: C sees A''s dreams via the (unrelated) goal grant';
   select count(*) into n from pots where user_id = '44444444-4444-4444-4444-444444444444';
   assert n = 0, 'LEAK: C sees A''s pots via the goal grant';
 
-  -- Goal sharing (0043): a bare view grant doesn't make C a participant
-  -- -- v_goal_participants_detail's own access check (app.can_view_goal,
-  -- owner-or-participant only, deliberately not has_grant) means C sees
-  -- no participant list here either, matching the same "doesn't cascade"
-  -- decision the rest of this block already covers for tasks/milestones/etc.
+  -- 0044's deliberate carve-out: v_goal_participants_detail now reads
+  -- app.is_goal_owner_or_participant (owner-or-participant only,
+  -- never has_grant), so a bare view grant still doesn't make C a
+  -- participant or show C the participant list.
   select count(*) into n from v_goal_participants_detail
    where goal_id = 'a0000000-0000-0000-0000-000000000010';
   assert n = 0, 'LEAK: C sees the participant list via a bare goal grant';
@@ -608,6 +645,84 @@ begin
   assert v_scope = 'view', format('LEAK: C (the grantee, not the grantor) escalated their own grant''s scope to %s', v_scope);
 end $$;
 set role authenticated;
+select set_config('request.jwt.claim.sub', '55555555-5555-5555-5555-555555555555', false);
+
+-- =============================================================================
+-- PART 5c: friends and sharing (0044). A and C become friends (on top
+-- of the share_grants row they already have from PART 5 -- friendship
+-- and grants are deliberately independent, per that package's own
+-- opening philosophy, so having both between the same pair is a
+-- realistic shape to test, not a contrivance); A blocks B, unrelated
+-- to any of this. B (party to none of it) should see nothing through
+-- friendships/user_blocks or any of the four new views; C (the real
+-- friend and the real grantee) should see exactly what's actually
+-- theirs.
+-- =============================================================================
+select set_config('request.jwt.claim.sub', '44444444-4444-4444-4444-444444444444', false);
+do $$
+declare v_friendship_id uuid;
+begin
+  v_friendship_id := app.send_friend_request('iso_user_c');
+  perform set_config('request.jwt.claim.sub', '33333333-3333-3333-3333-333333333333', false);
+  perform app.respond_to_friend_request(v_friendship_id, true);
+  perform set_config('request.jwt.claim.sub', '44444444-4444-4444-4444-444444444444', false);
+  perform app.block_user('55555555-5555-5555-5555-555555555555');
+end $$;
+
+-- As B: unrelated to the A-C friendship and the A-blocks-B row alike
+-- (RLS scopes user_blocks to the blocker only, so B can't even see
+-- that *they themselves* were blocked -- "don't explain why", F1
+-- brief -- but the friendship/view checks below are the real
+-- adversarial point: A-C's relationship, not B's own).
+select set_config('request.jwt.claim.sub', '55555555-5555-5555-5555-555555555555', false);
+do $$
+declare n int;
+begin
+  select count(*) into n from friendships
+   where (requester_id = '44444444-4444-4444-4444-444444444444' and addressee_id = '33333333-3333-3333-3333-333333333333')
+      or (requester_id = '33333333-3333-3333-3333-333333333333' and addressee_id = '44444444-4444-4444-4444-444444444444');
+  assert n = 0, 'LEAK: B sees the A-C friendship row';
+
+  select count(*) into n from user_blocks where blocker_id = '44444444-4444-4444-4444-444444444444';
+  assert n = 0, 'LEAK: B sees A''s block row (blocker-only visibility, even for the blocked party)';
+
+  select count(*) into n from v_friends;
+  assert n = 0, 'LEAK: B sees a friend through v_friends (B has none)';
+
+  select count(*) into n from v_friend_requests;
+  assert n = 0, 'LEAK: B sees a friend request through v_friend_requests (B has none)';
+
+  select count(*) into n from v_shared_with_me_all;
+  assert n = 0, 'LEAK: B sees a share through v_shared_with_me_all (B has none)';
+
+  select count(*) into n from v_my_shares;
+  assert n = 0, 'LEAK: B sees a share through v_my_shares (B has shared nothing)';
+end $$;
+
+-- As C: the real friend and the real grantee -- should see exactly
+-- one row in each of the four new views, not zero (proving these
+-- views actually work for their intended user, not just that they're
+-- locked down for everyone else).
+select set_config('request.jwt.claim.sub', '33333333-3333-3333-3333-333333333333', false);
+do $$
+declare n int;
+begin
+  select count(*) into n from v_friends where user_id = '44444444-4444-4444-4444-444444444444';
+  assert n = 1, 'C should see A as a friend through v_friends';
+
+  select count(*) into n from v_shared_with_me_all where resource_type = 'goal' and resource_id = 'a0000000-0000-0000-0000-000000000010';
+  assert n = 1, 'C should see the granted goal through v_shared_with_me_all';
+end $$;
+
+-- As A: the grantor -- v_my_shares should show the one grant to C.
+select set_config('request.jwt.claim.sub', '44444444-4444-4444-4444-444444444444', false);
+do $$
+declare n int;
+begin
+  select count(*) into n from v_my_shares where grantee_id = '33333333-3333-3333-3333-333333333333' and resource_type = 'goal';
+  assert n = 1, 'A should see C listed through v_my_shares';
+end $$;
+
 select set_config('request.jwt.claim.sub', '55555555-5555-5555-5555-555555555555', false);
 
 -- =============================================================================
