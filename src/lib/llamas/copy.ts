@@ -283,6 +283,22 @@ export const COPY_VARIANTS: { [K in TriggerCode]: CopyFn<K>[] } = {
     ({ count, totalValueMinor, currency }) =>
       `${count} more dream${count === 1 ? "" : "s"} off the list this month — ${formatMoney(totalValueMinor, currency)} in dreams achieved so far. Keep going!`,
   ],
+  // Goal sharing package (S2). Never actually picked at random by
+  // getLlamaCopy — 0043's invite_by_handle writes its own v_bodies pick
+  // straight into the row, since the trigger fires inside a database
+  // function rather than through emit.ts's usual path (see the
+  // TriggerParams/registry comments). Kept here anyway so every
+  // TriggerCode has a real, reviewable entry on /styleguide/llamas and
+  // the "at least three variants" rule holds for this trigger too, not
+  // just the ones application code actually renders through.
+  goal_shared_with_you: [
+    ({ goalTitle, ownerName }) =>
+      `${ownerName} just shared "${goalTitle}" with you. Go take a look!`,
+    ({ goalTitle, ownerName }) =>
+      `You're in on "${goalTitle}" now — ${ownerName} added you. Say hello.`,
+    ({ goalTitle, ownerName }) =>
+      `New one in your list: "${goalTitle}", courtesy of ${ownerName}.`,
+  ],
 };
 
 /**

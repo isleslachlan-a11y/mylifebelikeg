@@ -58,7 +58,7 @@ export default async function AppLayout({
   // app going down over one non-essential fetch.
   const { data: llamaMessages, error: llamaMessagesError } = await supabase
     .from("llama_messages")
-    .select("id, speaker, body, read_at")
+    .select("id, speaker, body, read_at, resource_type, resource_id, trigger_code")
     .is("dismissed_at", null)
     .order("created_at", { ascending: false })
     .limit(30);
@@ -70,13 +70,32 @@ export default async function AppLayout({
     speaker: m.speaker,
     body: m.body,
     readAt: m.read_at,
+    resourceType: m.resource_type,
+    resourceId: m.resource_id,
   }));
+
+  // Goal sharing package (S2): "badge on the goals nav item for unread
+  // share notification" (brief, verbatim) -- computed here, once, off
+  // the same inbox fetch above rather than a second query; a Set keyed
+  // by nav entry id since that's what NavLink/Sidebar/TabBar already
+  // key off, even though today it can only ever contain "goals".
+  const badgedNavEntryIds = new Set<string>(
+    llamaMessages?.some(
+      (m) =>
+        m.read_at == null &&
+        m.trigger_code === "goal_shared_with_you" &&
+        m.resource_type === "goal",
+    )
+      ? ["goals"]
+      : [],
+  );
 
   return (
     <div className="flex min-h-screen">
       <Sidebar
         displayName={profile.display_name}
         inboxMessages={inboxMessages}
+        badgedNavEntryIds={badgedNavEntryIds}
       />
       <div className="flex flex-1 flex-col">
         <MobileHeader inboxMessages={inboxMessages} />
@@ -89,7 +108,10 @@ export default async function AppLayout({
           {children}
         </main>
       </div>
-      <TabBar displayName={profile.display_name} />
+      <TabBar
+        displayName={profile.display_name}
+        badgedNavEntryIds={badgedNavEntryIds}
+      />
       {/* P10.0: mounted once, here — the one shared instance every
           JumpMenuTrigger (sidebar, mobile header) opens via a window
           event rather than each rendering its own. See jump-menu.tsx's

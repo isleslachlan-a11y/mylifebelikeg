@@ -58,6 +58,7 @@ const EXAMPLES: { [K in TriggerCode]: TriggerParams[K] } = {
     totalValueMinor: 385000,
     currency: "AUD",
   },
+  goal_shared_with_you: { goalTitle: "Japan 2027", ownerName: "Sophia" },
 };
 
 // Every variant, rendered — not a random pick — so all copy is reviewable

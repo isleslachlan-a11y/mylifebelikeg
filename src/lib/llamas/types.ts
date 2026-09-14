@@ -39,7 +39,8 @@ export type TriggerCode =
   | "dream_achieved"
   | "dream_let_go"
   | "dream_prune_available"
-  | "dreams_achieved_recap";
+  | "dreams_achieved_recap"
+  | "goal_shared_with_you";
 
 /** Typed parameters each trigger's copy templates need. */
 export type TriggerParams = {
@@ -211,6 +212,19 @@ export type TriggerParams = {
     totalValueMinor: number;
     currency: string;
   };
+  /**
+   * Goal sharing package (S2). Emitted directly from
+   * `app.invite_by_handle` (0043) via the same `llama_messages` insert
+   * path `emit.ts` uses elsewhere -- not through `emitLlamaMessage`
+   * itself, since the trigger fires inside a database function, not
+   * application code (see 0043's own `v_bodies` comment). Listed here
+   * purely for documentation/type-completeness, matching every other
+   * wired trigger's presence in this union; `registry.ts`'s entry is
+   * likewise never read by the emit path for this one trigger, only by
+   * anything downstream (the inbox, `/styleguide/llamas`) that expects
+   * every `TriggerCode` to resolve to a speaker.
+   */
+  goal_shared_with_you: { goalTitle: string; ownerName: string };
 };
 
 /** Display metadata for the two speakers — not database-derived, just copy. */

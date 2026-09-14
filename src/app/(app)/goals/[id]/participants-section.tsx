@@ -1,12 +1,20 @@
 "use client";
 
-import { useState, useTransition, type FormEvent } from "react";
+import { useEffect, useRef, useState, useTransition, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { Avatar } from "@/components/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -15,6 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { createClient } from "@/lib/supabase/client";
 import type { Database, Json } from "@/types/database";
 import {
   addParticipant,
@@ -24,6 +33,7 @@ import {
 
 type ParticipantRole = Database["public"]["Enums"]["participant_role"];
 type AddableRole = Extract<ParticipantRole, "collaborator" | "viewer">;
+const DEBOUNCE_MS = 400;
 
 export type ParticipantRow = {
   id: string;
@@ -35,6 +45,23 @@ export type ParticipantRow = {
   profile: { handle: string; display_name: string; avatar: Json };
 };
 
+type HandleLookupState =
+  | { status: "idle" }
+  | { status: "searching" }
+  | { status: "found"; id: string; handle: string; display_name: string; avatar: Json }
+  | { status: "not_found" };
+
+/**
+ * Goal sharing package (S1). The "Share" control is a dialog now, not
+ * an always-visible inline form -- brief, verbatim: "A 'Share' control,
+ * visible to the goal owner only, opening a dialog." Its handle input
+ * does a live, debounced lookup via `find_profile_by_handle` (called
+ * directly from the browser client -- the function is SECURITY DEFINER
+ * and needs no owner check to merely look someone up, so there's no
+ * reason to round-trip through a server action first) and shows the
+ * matched avatar/display name before the owner commits to inviting --
+ * "so the owner can confirm they've got the right person" (brief).
+ */
 export function ParticipantsSection({
   goalId,
   currentUserId,
@@ -45,15 +72,26 @@ export function ParticipantsSection({
   goalId: string;
   currentUserId: string;
   isOwner: boolean;
-  owner: { handle: string; display_name: string; avatar: Json };
+  owner: { id: string; handle: string; display_name: string; avatar: Json };
   initialParticipants: ParticipantRow[];
 }) {
   const router = useRouter();
   const [participants, setParticipants] = useState(initialParticipants);
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+
+  const [shareOpen, setShareOpen] = useState(false);
   const [handle, setHandle] = useState("");
   const [role, setRole] = useState<AddableRole>("collaborator");
+  const [lookup, setLookup] = useState<HandleLookupState>({ status: "idle" });
+
+  const [confirmTarget, setConfirmTarget] = useState<ParticipantRow | null>(
+    null,
+  );
+  const [confirmError, setConfirmError] = useState<{
+    message: string;
+    openTaskCount: number | null;
+  } | null>(null);
 
   // useState's initial value only applies on mount — router.refresh() re-runs
   // the server component and passes a new initialParticipants prop, but
@@ -68,8 +106,67 @@ export function ParticipantsSection({
     setParticipants(initialParticipants);
   }
 
-  function handleAdd(event: FormEvent) {
+  const lookupCacheRef = useRef<Map<string, HandleLookupState>>(new Map());
+
+  // A ref's `.current` can't be read during render (a second React lint
+  // rule, distinct from the setState-in-effect one below) -- the cache
+  // is only ever touched from inside this effect, an event handler, or
+  // a callback, never the component body itself. Every branch,
+  // including "empty input" and "already cached," funnels through this
+  // one setTimeout so every setState call happens inside its callback
+  // rather than synchronously in the effect body -- the exact shape
+  // photo-picker.tsx's own search debounce already uses, for the same
+  // lint reason.
+  useEffect(() => {
+    const trimmed = handle.trim();
+    const normalized = trimmed.toLowerCase();
+    const cached = trimmed ? lookupCacheRef.current.get(normalized) : undefined;
+    const delay = trimmed && !cached ? DEBOUNCE_MS : 0;
+
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      if (cancelled) return;
+
+      if (!trimmed) {
+        setLookup({ status: "idle" });
+        return;
+      }
+      if (cached) {
+        setLookup(cached);
+        return;
+      }
+
+      setLookup({ status: "searching" });
+      void (async () => {
+        const supabase = createClient();
+        const { data } = await supabase.rpc("find_profile_by_handle", {
+          p_handle: trimmed,
+        });
+        if (cancelled) return;
+        const match = data?.[0];
+        const next: HandleLookupState = match?.id
+          ? {
+              status: "found",
+              id: match.id,
+              handle: match.handle!,
+              display_name: match.display_name!,
+              avatar: match.avatar,
+            }
+          : { status: "not_found" };
+        lookupCacheRef.current.set(normalized, next);
+        setLookup(next);
+      })();
+    }, delay);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [handle]);
+
+  function handleShare(event: FormEvent) {
     event.preventDefault();
+    if (lookup.status !== "found") return;
     setError(null);
     startTransition(async () => {
       const result = await addParticipant(goalId, handle, role);
@@ -78,8 +175,10 @@ export function ParticipantsSection({
         return;
       }
       setHandle("");
-      // The new row's id/profile aren't known client-side without another
-      // round trip — router.refresh() re-runs the server component (which
+      setLookup({ status: "idle" });
+      setShareOpen(false);
+      // The new row's id isn't known client-side without another round
+      // trip — router.refresh() re-runs the server component (which
       // already has fresh data via addParticipant's revalidatePath)
       // rather than fabricating a placeholder row here.
       router.refresh();
@@ -101,16 +200,21 @@ export function ParticipantsSection({
     });
   }
 
-  function handleRemove(participantId: string) {
-    const previous = participants;
-    setParticipants((prev) => prev.filter((p) => p.id !== participantId));
-    setError(null);
+  function handleConfirmRemove() {
+    if (!confirmTarget) return;
+    setConfirmError(null);
     startTransition(async () => {
-      const result = await removeParticipant(participantId);
+      const result = await removeParticipant(confirmTarget.id);
       if (!result.ok) {
-        setParticipants(previous);
-        setError(result.error);
+        setConfirmError({
+          message: result.error,
+          openTaskCount: result.openTaskCount,
+        });
+        return;
       }
+      setParticipants((prev) => prev.filter((p) => p.id !== confirmTarget.id));
+      setConfirmTarget(null);
+      router.refresh();
     });
   }
 
@@ -183,7 +287,10 @@ export function ParticipantsSection({
                   variant="ghost"
                   size="sm"
                   disabled={isPending}
-                  onClick={() => handleRemove(p.id)}
+                  onClick={() => {
+                    setConfirmError(null);
+                    setConfirmTarget(p);
+                  }}
                 >
                   {p.user_id === currentUserId ? "Leave" : "Remove"}
                 </Button>
@@ -200,32 +307,169 @@ export function ParticipantsSection({
       </ul>
 
       {isOwner && (
-        <form onSubmit={handleAdd} className="flex items-end gap-2">
-          <div className="flex flex-1 flex-col gap-1.5">
-            <label htmlFor="participant-handle" className="text-xs font-medium">
-              Add by handle
-            </label>
-            <Input
-              id="participant-handle"
-              value={handle}
-              onChange={(e) => setHandle(e.target.value)}
-              placeholder="their_handle"
-            />
-          </div>
-          <Select value={role} onValueChange={(v) => setRole(v as AddableRole)}>
-            <SelectTrigger className="w-36">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="collaborator">Collaborator</SelectItem>
-              <SelectItem value="viewer">Viewer</SelectItem>
-            </SelectContent>
-          </Select>
-          <Button type="submit" disabled={isPending || !handle.trim()}>
-            Add
-          </Button>
-        </form>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="w-fit"
+          onClick={() => setShareOpen(true)}
+        >
+          Share
+        </Button>
       )}
+
+      {/* Share dialog -- live handle lookup, debounced, with an
+          avatar/name preview before committing (S1, brief verbatim). */}
+      <Dialog
+        open={shareOpen}
+        onOpenChange={(open) => {
+          setShareOpen(open);
+          if (!open) {
+            setHandle("");
+            setLookup({ status: "idle" });
+            setError(null);
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Share this goal</DialogTitle>
+            <DialogDescription>
+              They&rsquo;ll be able to see spending on this goal — sharing a
+              goal exposes its ledger entries to every participant. Your
+              pots, income and expenses stay private regardless.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleShare} className="flex flex-col gap-3">
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="share-handle" className="text-xs font-medium">
+                Handle
+              </label>
+              <Input
+                id="share-handle"
+                autoFocus
+                value={handle}
+                onChange={(e) => setHandle(e.target.value)}
+                placeholder="their_handle"
+              />
+              {lookup.status === "searching" && (
+                <p className="text-muted-foreground text-xs">Looking…</p>
+              )}
+              {lookup.status === "not_found" && (
+                <p className="text-destructive text-xs">
+                  No one&rsquo;s using that handle.
+                </p>
+              )}
+              {lookup.status === "found" && (
+                <div className="bg-muted flex items-center gap-2 rounded-lg p-2">
+                  <Avatar avatar={lookup.avatar} size={28} className="rounded-full" />
+                  <span className="text-sm">
+                    {lookup.display_name}{" "}
+                    <span className="text-muted-foreground">
+                      @{lookup.handle}
+                    </span>
+                  </span>
+                </div>
+              )}
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="share-role" className="text-xs font-medium">
+                Role
+              </label>
+              <Select value={role} onValueChange={(v) => setRole(v as AddableRole)}>
+                <SelectTrigger id="share-role" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="collaborator">
+                    Collaborator — can edit
+                  </SelectItem>
+                  <SelectItem value="viewer">Viewer — read-only</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-muted-foreground text-xs">
+                View is read-only, not a participant slot for pledging money
+                or owning tasks — for that, invite them as a collaborator
+                instead. Picking wrong is annoying to undo later.
+              </p>
+            </div>
+            {error && (
+              <p role="alert" className="text-destructive text-sm">
+                {error}
+              </p>
+            )}
+            <DialogFooter>
+              <Button
+                type="submit"
+                disabled={isPending || lookup.status !== "found"}
+              >
+                {isPending ? "Sharing…" : "Share"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Leave/remove confirmation (S3, brief verbatim: "confirm before
+          either... they lose access, their ratings and pledges stay on
+          the goal as history"). */}
+      <Dialog
+        open={confirmTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setConfirmTarget(null);
+            setConfirmError(null);
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {confirmTarget?.user_id === currentUserId
+                ? "Leave this goal?"
+                : `Remove ${confirmTarget?.profile.display_name}?`}
+            </DialogTitle>
+            <DialogDescription>
+              {confirmTarget?.user_id === currentUserId
+                ? "You'll lose access to this goal. Your ratings and pledges stay on it as history — you can be re-invited later, which reactivates the same record rather than starting over."
+                : `They'll lose access to this goal. Their ratings and pledges stay on it as history — re-inviting them later reactivates the same record rather than duplicating it.`}
+            </DialogDescription>
+          </DialogHeader>
+          {confirmError && (
+            <div className="flex flex-col gap-2">
+              <p role="alert" className="text-destructive text-sm">
+                {confirmError.message}
+              </p>
+              {confirmError.openTaskCount != null && confirmError.openTaskCount > 0 && (
+                <Link
+                  href={`/goals/${goalId}#tasks`}
+                  className="text-primary text-sm underline-offset-4 hover:underline"
+                >
+                  View {confirmTarget?.profile.display_name}&rsquo;s tasks on
+                  this goal
+                </Link>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setConfirmTarget(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={isPending}
+              onClick={handleConfirmRemove}
+            >
+              {confirmTarget?.user_id === currentUserId ? "Leave" : "Remove"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

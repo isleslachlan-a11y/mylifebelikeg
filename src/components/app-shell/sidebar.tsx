@@ -28,9 +28,12 @@ const GROUP_LABEL_KEY: Record<NavGroup, "nav.group.core" | "nav.group.lookingBac
 export function Sidebar({
   displayName,
   inboxMessages,
+  badgedNavEntryIds,
 }: {
   displayName: string;
   inboxMessages: InboxMessage[];
+  /** Goal sharing package (S2) — see layout.tsx's own comment for how this is computed. */
+  badgedNavEntryIds: Set<string>;
 }) {
   const entriesByGroup = new Map(
     GROUP_ORDER.map((group) => [
@@ -68,6 +71,7 @@ export function Sidebar({
                   label={navLabel(entry.labelKey)}
                   icon={<entry.icon className="size-5 shrink-0" aria-hidden />}
                   orientation="row"
+                  hasBadge={badgedNavEntryIds.has(entry.id)}
                 />
               ))}
             </div>

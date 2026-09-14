@@ -10,7 +10,14 @@ import { getTabBarEntries } from "@/lib/navigation/manifest";
  * reordering which four show up here is a one-line change to a
  * `priority` field there, never a change to this file.
  */
-export function TabBar({ displayName }: { displayName: string }) {
+export function TabBar({
+  displayName,
+  badgedNavEntryIds,
+}: {
+  displayName: string;
+  /** Goal sharing package (S2) — see layout.tsx's own comment for how this is computed. */
+  badgedNavEntryIds: Set<string>;
+}) {
   const entries = getTabBarEntries();
 
   return (
@@ -25,6 +32,7 @@ export function TabBar({ displayName }: { displayName: string }) {
             label={navLabel(entry.labelKey)}
             icon={<entry.icon className="size-5" aria-hidden />}
             orientation="col"
+            hasBadge={badgedNavEntryIds.has(entry.id)}
           />
         </div>
       ))}

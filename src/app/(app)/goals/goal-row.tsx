@@ -15,6 +15,7 @@ export function GoalRow({
   today,
   taskProgress,
   ownerName,
+  myRole,
   scheduleVariance,
   rag,
 }: {
@@ -24,6 +25,13 @@ export function GoalRow({
   taskProgress: { done: number; total: number };
   /** Shown for goals in the "Shared with you" section — whose goal this actually is. */
   ownerName?: string;
+  /**
+   * Goal sharing package (S2): "show owner name and your role on each"
+   * (brief, verbatim) — only ever set alongside `ownerName`, for the
+   * same "shared with you" rows; an owned goal has no role of its own
+   * to show (the badge above already says "Active"/"Someday"/etc.).
+   */
+  myRole?: Database["public"]["Enums"]["participant_role"];
   /** null means "nothing to show" (no start/target date, no tasks, or still in the grace period) — never render 0%. */
   scheduleVariance?: number | null;
   /** From v_goal_rag (P4.2) — undefined only if the row wasn't found (shouldn't happen for a real goal, but the map lookup is honest about it). */
@@ -63,6 +71,11 @@ export function GoalRow({
               <span>No target date</span>
             )}
             {ownerName && <span>Owned by {ownerName}</span>}
+            {myRole && (
+              <Badge variant="outline" className="h-4 px-1.5 text-[0.65rem] capitalize">
+                {myRole}
+              </Badge>
+            )}
             {scheduleVariance != null && (
               <span>{formatScheduleVariance(scheduleVariance)}</span>
             )}

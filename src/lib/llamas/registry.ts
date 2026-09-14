@@ -76,6 +76,13 @@ export const TRIGGER_REGISTRY: Record<TriggerCode, RegistryEntry> = {
   dream_let_go: { speaker: "derek", priority: 2 },
   dream_prune_available: { speaker: "derek", priority: 2 },
   dreams_achieved_recap: { speaker: "fluffy", priority: 3 },
+  // Goal sharing package (S2, brief verbatim): "Fluffy, priority 1" --
+  // same tier as goal_completed/achievement_unlocked, since being added
+  // to someone's goal is the kind of thing worth surfacing promptly,
+  // not left to go stale in the inbox. Emitted from
+  // `app.invite_by_handle` (0043) directly, not through this registry's
+  // usual emitLlamaMessage path -- see the TriggerParams comment.
+  goal_shared_with_you: { speaker: "fluffy", priority: 1 },
 };
 
 export function getSpeaker(trigger: TriggerCode): LlamaSpeaker {

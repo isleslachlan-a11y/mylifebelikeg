@@ -600,7 +600,7 @@ export default async function GoalDetailPage({
             goalId={goal.id}
             currentUserId={userId}
             isOwner={isOwner}
-            owner={ownerProfile}
+            owner={{ id: goal.owner_id, ...ownerProfile }}
             initialParticipants={nonOwnerParticipants}
           />
         </section>

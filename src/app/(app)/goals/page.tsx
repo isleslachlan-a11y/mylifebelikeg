@@ -135,10 +135,20 @@ export default async function GoalsPage({
     sharedGoalsQuery = sharedGoalsQuery.eq("state", stateFilter);
   }
 
+  // Goal sharing package (S2): "show owner name and your role on each"
+  // (brief, verbatim) -- v_shared_with_me already computes exactly
+  // "my role on this goal", scoped to auth.uid() internally, so this
+  // reads that instead of re-deriving it from goal_participants by
+  // hand. It doesn't carry the full goal row (title, dates, state --
+  // see the view's own definition), so it's fetched alongside
+  // sharedGoalsQuery rather than replacing it, and merged in JS below.
+  const roleQuery = supabase.from("v_shared_with_me").select("goal_id, my_role");
+
   const [
     { data: goals, error: goalsError },
     { data: sharedGoals, error: sharedGoalsError },
-  ] = await Promise.all([goalsQuery, sharedGoalsQuery]);
+    { data: sharedRoles, error: sharedRolesError },
+  ] = await Promise.all([goalsQuery, sharedGoalsQuery, roleQuery]);
 
   if (goalsError || !goals) {
     throw new Error(goalsError?.message ?? "Failed to load goals.");
@@ -148,6 +158,18 @@ export default async function GoalsPage({
       sharedGoalsError?.message ?? "Failed to load shared goals.",
     );
   }
+  if (sharedRolesError || !sharedRoles) {
+    throw new Error(
+      sharedRolesError?.message ?? "Failed to load your role on shared goals.",
+    );
+  }
+  const roleByGoalId = new Map(
+    sharedRoles
+      .filter((r): r is typeof r & { goal_id: string; my_role: string } =>
+        Boolean(r.goal_id && r.my_role),
+      )
+      .map((r) => [r.goal_id, r.my_role as Database["public"]["Enums"]["participant_role"]]),
+  );
 
   // Task progress ("7/12") and schedule variance inputs, tallied in JS
   // from one flat query — same pattern as P1.1's goal counts. No progress
@@ -372,6 +394,7 @@ export default async function GoalsPage({
                     goal={goal}
                     today={today}
                     ownerName={goal.owner?.display_name}
+                    myRole={roleByGoalId.get(goal.id)}
                     taskProgress={
                       taskProgress[goal.id] ?? { done: 0, total: 0 }
                     }

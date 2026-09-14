@@ -188,6 +188,32 @@ const DREAM_ALREADY_PROMOTED_RE = /already been promoted to a goal/i;
 const DREAM_ALREADY_ACHIEVED_RE = /dream has already been achieved/i;
 const DREAM_ARCHIVED_RE = /this dream is archived/i;
 
+// Goal sharing (migration 0043) -- app.invite_by_handle/leave_goal/
+// transfer_goal_ownership/create_goal_invitation/accept_invitation
+// each raise several distinct, specifically-worded exceptions rather
+// than named constraints, matched by message content the same way
+// every RAISE EXCEPTION-based entry above already is. Message text,
+// not `error.code` (the raw SQLSTATE, e.g. 23505/42501/P0002) --
+// several of these functions reuse the *same* SQLSTATE for
+// semantically different situations (invite_by_handle's "that's you"
+// and leave_goal's "owner can't leave" are both check_violation), so a
+// code-keyed lookup would be too coarse to give each its own message;
+// this file's existing convention of matching on the raised text
+// itself doesn't have that problem.
+const NO_HANDLE_RE = /no one's using that handle/i;
+const ALREADY_ON_GOAL_RE = /they're already on this goal/i;
+const INVITING_SELF_RE = /that's you -- you already own this goal/i;
+const OWNER_ONLY_INVITE_RE = /only the goal owner can invite people/i;
+const OWNER_ONLY_REMOVE_RE = /only the goal owner can remove someone else/i;
+const OWNER_ONLY_TRANSFER_RE = /only the goal owner can transfer ownership/i;
+const OWNER_CANT_LEAVE_RE = /the owner can't leave their own goal/i;
+const OPEN_TASKS_RE = /still own (\d+) open task/i;
+const NEW_OWNER_NOT_PARTICIPANT_RE =
+  /the new owner has to already be a participant/i;
+const INVALID_EMAIL_RE = /doesn't look like a valid email address/i;
+const EMAIL_HAS_ACCOUNT_RE = /invite them by handle instead/i;
+const INVITATION_INVALID_RE = /this invitation is invalid or has expired/i;
+
 /** Map a Postgres/PostgREST error to a user-facing sentence. Logs the original for unmatched cases. */
 export function humanizeDbError(
   error: Pick<PostgrestError, "message" | "details">,
@@ -228,10 +254,70 @@ export function humanizeDbError(
   if (DREAM_ARCHIVED_RE.test(error.message)) {
     return "Unarchive this dream before promoting it to a goal.";
   }
+  if (NO_HANDLE_RE.test(error.message)) {
+    return "No one's using that handle.";
+  }
+  if (ALREADY_ON_GOAL_RE.test(error.message)) {
+    return "They're already on this goal.";
+  }
+  if (INVITING_SELF_RE.test(error.message)) {
+    return "That's you — you already own this goal.";
+  }
+  if (
+    OWNER_ONLY_INVITE_RE.test(error.message) ||
+    OWNER_ONLY_TRANSFER_RE.test(error.message)
+  ) {
+    return "Only the goal owner can do that.";
+  }
+  if (OWNER_ONLY_REMOVE_RE.test(error.message)) {
+    return "You can only remove yourself from this goal.";
+  }
+  if (OWNER_CANT_LEAVE_RE.test(error.message)) {
+    return "The owner can't leave their own goal — transfer it or archive it instead.";
+  }
+  // The open-task count is baked into the raised message itself
+  // (`leave_goal`'s own `RAISE ... '...% open task(s)...', v_count`) --
+  // extracted and reformatted here rather than passed through verbatim,
+  // so the exact wording lives in one place. Callers that need the raw
+  // count for a "link to the filtered task list" affordance (S3) should
+  // use `extractOpenTaskCount` below instead of parsing this string a
+  // second time.
+  if (OPEN_TASKS_RE.test(error.message)) {
+    const count = Number(OPEN_TASKS_RE.exec(error.message)?.[1]);
+    return `They still own ${count} open task${count === 1 ? "" : "s"} on this goal — reassign ${count === 1 ? "it" : "them"} first.`;
+  }
+  if (NEW_OWNER_NOT_PARTICIPANT_RE.test(error.message)) {
+    return "The new owner needs to already be a participant on this goal.";
+  }
+  if (INVALID_EMAIL_RE.test(error.message)) {
+    return "That doesn't look like a valid email address.";
+  }
+  if (EMAIL_HAS_ACCOUNT_RE.test(error.message)) {
+    return "That email already has an account — invite them by handle instead.";
+  }
+  if (INVITATION_INVALID_RE.test(error.message)) {
+    return "This invitation is invalid or has expired.";
+  }
 
   console.error(
     name ? `Unmapped DB constraint violation: ${name}` : "Unmapped DB error",
     error,
   );
   return FALLBACK_MESSAGE;
+}
+
+/**
+ * S3: "surface it as 'Reassign their 3 open tasks first' and link to
+ * the filtered task list — don't just report the error and leave them
+ * to find the tasks" (brief, verbatim). `humanizeDbError` already turns
+ * `leave_goal`'s raised message into a display string; this pulls the
+ * same count back out as a number so a caller can build that link
+ * (e.g. `/goals/[id]?ownerId=...`) alongside the message, without
+ * parsing the string a second time with a different regex.
+ */
+export function extractOpenTaskCount(
+  error: Pick<PostgrestError, "message" | "details">,
+): number | null {
+  const match = /still own (\d+) open task/i.exec(error.message);
+  return match ? Number(match[1]) : null;
 }

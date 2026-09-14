@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useTransition } from "react";
 import { Bell } from "lucide-react";
 
@@ -21,6 +22,17 @@ export type InboxMessage = {
   speaker: LlamaSpeaker;
   body: string;
   readAt: string | null;
+  /**
+   * Goal sharing package (S2): "make sure the inbox renders it with a
+   * link straight to the goal" (brief, verbatim) — a generic gap, not
+   * sharing-specific (llama_messages has carried resource_type/
+   * resource_id since P4.6, nothing downstream ever read them until
+   * now). Only `resource_type === "goal"` is rendered as a link below;
+   * any other/unset resource type just shows plain text, same as
+   * before this package.
+   */
+  resourceType: string | null;
+  resourceId: string | null;
 };
 
 /**
@@ -148,7 +160,19 @@ export function LlamaInbox({
                   >
                     {SPEAKER_META[m.speaker].name}
                   </p>
-                  <p className="text-foreground text-sm">{m.body}</p>
+                  {m.resourceType === "goal" && m.resourceId ? (
+                    <Link
+                      href={`/goals/${m.resourceId}`}
+                      onClick={() => {
+                        if (m.readAt == null) handleMarkRead(m.id);
+                      }}
+                      className="text-foreground text-sm underline-offset-2 hover:underline"
+                    >
+                      {m.body}
+                    </Link>
+                  ) : (
+                    <p className="text-foreground text-sm">{m.body}</p>
+                  )}
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-1 text-xs">
                   {m.readAt == null && (
