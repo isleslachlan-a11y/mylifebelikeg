@@ -135,6 +135,20 @@ export function PlaceMap({
 
     let cancelled = false;
 
+    // Mapbox measures its container once, at construction — a container
+    // that's 0px tall at that moment (a tab not yet shown, an accordion
+    // still closed) paints only the background colour and never
+    // recovers on its own, even once the container later gets real
+    // height. No current call site in this app renders into a
+    // container like that (every one passes a resolved Tailwind height
+    // class up front), but this is cheap insurance against the next one
+    // that does, rather than a fix for an active bug — resize() is a
+    // no-op if nothing's actually changed size.
+    const resizeObserver = new ResizeObserver(() => {
+      mapRef.current?.resize();
+    });
+    resizeObserver.observe(containerRef.current);
+
     void (async () => {
       try {
         const mapboxglModule = (await import("mapbox-gl")).default;
@@ -170,6 +184,7 @@ export function PlaceMap({
 
     return () => {
       cancelled = true;
+      resizeObserver.disconnect();
       mapRef.current?.remove();
       mapRef.current = null;
     };
