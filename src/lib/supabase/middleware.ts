@@ -51,8 +51,31 @@ export async function updateSession(request: NextRequest) {
     },
   );
 
-  const { data } = await supabase.auth.getClaims();
-  const userId = data?.claims.sub;
+  // getClaims()'s own documented error path (a revoked/expired refresh
+  // token, an invalid signature) already resolves to `{ data: null,
+  // error }` -- `userId` falling through to `undefined` below already
+  // handles that gracefully, same as an anonymous visitor. What isn't
+  // covered by that is the rarer case where the call genuinely throws
+  // instead of returning an error result -- a malformed/corrupted
+  // session cookie failing JWT decode, or a JWKS/crypto failure while
+  // verifying an asymmetric-signed token (confirmed against the SDK's
+  // own source: it only catches and returns known AuthError subclasses,
+  // anything else is rethrown). Left unguarded, that would surface as a
+  // hard middleware error instead of "redirect to login rather than
+  // erroring" (the explicit ask here) -- caught and treated exactly
+  // like "no session" below. Deliberately the opposite failure
+  // direction from the profileError handling further down this
+  // function: a broken *profile* lookup fails open (lets the request
+  // through) since profiles data isn't a security boundary, but a
+  // broken *auth* check must fail closed, since treating a session we
+  // couldn't actually verify as valid would be the real hole.
+  let userId: string | undefined;
+  try {
+    const { data } = await supabase.auth.getClaims();
+    userId = data?.claims.sub;
+  } catch (error) {
+    console.error("proxy: getClaims threw, treating as unauthenticated", error);
+  }
   const { pathname } = request.nextUrl;
 
   if (UNGATED_ROUTES.includes(pathname)) {

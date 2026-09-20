@@ -21,7 +21,20 @@ export default async function AppLayout({
   children: React.ReactNode;
 }) {
   const supabase = await createClient();
-  const { data: auth } = await supabase.auth.getClaims();
+  // Same fail-closed treatment as proxy.ts's own getClaims() call: its
+  // normal error path (a revoked/expired refresh token) already
+  // resolves to `{ data: null }`, redirecting below same as an
+  // anonymous visitor -- this only additionally catches the rarer case
+  // where the call itself throws (a malformed session cookie, a JWKS
+  // verification failure), so this defense-in-depth layer redirects to
+  // login too, rather than surfacing a hard error for something proxy.ts
+  // was always meant to have already screened out.
+  let auth: Awaited<ReturnType<typeof supabase.auth.getClaims>>["data"] = null;
+  try {
+    ({ data: auth } = await supabase.auth.getClaims());
+  } catch (error) {
+    console.error("AppLayout: getClaims threw, treating as unauthenticated", error);
+  }
   if (!auth) {
     redirect("/login");
   }
