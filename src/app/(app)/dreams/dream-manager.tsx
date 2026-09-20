@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { AchievementCelebration } from "@/components/achievement-celebration";
+import type { DreamLinkCardData } from "@/components/social-links/dream-link-card";
 import type { NewlyUnlockedAchievement } from "@/lib/achievements/types";
 import type { Database } from "@/types/database";
 import {
@@ -95,6 +96,7 @@ export function DreamManager({
   progress,
   promotedTripTitles,
   defaultCurrency,
+  linksByEntryId,
 }: {
   initialItems: SomedayItemRow[];
   lifeAreas: LifeArea[];
@@ -104,6 +106,8 @@ export function DreamManager({
   progress: SomedayProgressRow;
   promotedTripTitles: Record<string, string>;
   defaultCurrency: string;
+  /** P10.3: every dream's own saved social links, prefetched once at page load and keyed by entry id -- same "no N+1, resolve it all up front" shape thumbUrlsByPath already established. */
+  linksByEntryId: Record<string, DreamLinkCardData[]>;
 }) {
   const router = useRouter();
   const [items, setItems] = useState(initialItems);
@@ -460,6 +464,7 @@ export function DreamManager({
         mode="edit"
         open={editingItem !== null}
         item={editingItem}
+        links={editingItem ? (linksByEntryId[editingItem.id] ?? []) : []}
         lifeAreas={lifeAreas}
         userId={userId}
         defaultCurrency={defaultCurrency}

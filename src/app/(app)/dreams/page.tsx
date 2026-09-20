@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import type { DreamLinkCardData } from "@/components/social-links/dream-link-card";
 import { createClient } from "@/lib/supabase/server";
 import { deriveThumbPath } from "@/lib/storage/dream-photos";
 import { getSignedDreamPhotoUrls } from "@/lib/storage/dream-photos-server";
+import type { SocialLinkProvider } from "@/lib/social-links/parse";
 import { DreamManager } from "./dream-manager";
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
@@ -84,6 +86,7 @@ export default async function DreamsPage() {
     { data: progress, error: progressError },
     { data: profile, error: profileError },
     { data: sharedDreams, error: sharedDreamsError },
+    { data: links, error: linksError },
   ] = await Promise.all([
     supabase
       .from("someday_items")
@@ -113,10 +116,22 @@ export default async function DreamsPage() {
       .from("v_shared_with_me_all")
       .select("grant_id, resource_id, title, owner_name")
       .eq("resource_type", "someday_item"),
+    // P10.3: every one of the user's own saved links, prefetched once
+    // rather than per-dialog-open -- user_id is denormalised on
+    // dream_entry_links specifically so this doesn't need to wait on
+    // `items` resolving first to build an entry_id list.
+    supabase
+      .from("dream_entry_links")
+      .select("id, entry_id, provider, provider_post_id, canonical_url, title, note")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: true }),
   ]);
 
   if (itemsError || !items) {
     throw new Error(itemsError?.message ?? "Failed to load your Dream Diary.");
+  }
+  if (linksError) {
+    throw new Error(linksError.message);
   }
   if (lifeAreasError || !lifeAreas) {
     throw new Error(lifeAreasError?.message ?? "Failed to load life areas.");
@@ -202,6 +217,7 @@ export default async function DreamsPage() {
         lifeAreas={lifeAreas}
         userId={userId}
         thumbUrlsByPath={Object.fromEntries(thumbUrlsByPath)}
+        linksByEntryId={groupLinksByEntryId(links ?? [])}
         progress={
           progress ?? {
             user_id: userId,
@@ -244,4 +260,31 @@ export default async function DreamsPage() {
       )}
     </div>
   );
+}
+
+/** P10.3: groups the flat dream_entry_links query result by entry_id, shaped exactly as DreamLinkCardData expects -- the one place the snake_case DB row becomes the camelCase prop shape every social-links component reads. */
+function groupLinksByEntryId(
+  rows: {
+    id: string;
+    entry_id: string;
+    provider: string;
+    provider_post_id: string | null;
+    canonical_url: string;
+    title: string | null;
+    note: string | null;
+  }[],
+): Record<string, DreamLinkCardData[]> {
+  const grouped: Record<string, DreamLinkCardData[]> = {};
+  for (const row of rows) {
+    const card: DreamLinkCardData = {
+      id: row.id,
+      provider: row.provider as SocialLinkProvider,
+      providerPostId: row.provider_post_id,
+      canonicalUrl: row.canonical_url,
+      title: row.title,
+      note: row.note,
+    };
+    (grouped[row.entry_id] ??= []).push(card);
+  }
+  return grouped;
 }

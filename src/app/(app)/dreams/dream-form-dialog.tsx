@@ -31,6 +31,8 @@ import { ImageUpload } from "@/components/image-upload";
 import { LlamaMessage } from "@/components/llama-message";
 import { ShareCardButton } from "@/components/share-card-button";
 import { ShareControl } from "@/components/sharing/share-control";
+import type { DreamLinkCardData } from "@/components/social-links/dream-link-card";
+import { DreamLinksSection } from "./dream-links-section";
 import {
   describeDreamAffordability,
   type DreamAffordabilityRow,
@@ -190,10 +192,13 @@ export function DreamFormDialog({
   onSaved,
   onRequestDelete,
   onRequestAchieve,
+  links,
 }: {
   mode: "create" | "edit";
   open: boolean;
   item?: SomedayItemRow | null;
+  /** P10.3: this dream's already-saved social links, edit mode only -- create mode never has any, since a link needs a real entry_id to attach to. */
+  links?: DreamLinkCardData[];
   /** Create mode only -- the empty state's three prompts (`<DreamEmptyState>`) each open the dialog with a kind already picked, still an explicit choice the user made by tapping one of three labelled buttons, not a guess. Defaults to "place" (the column's own default) when absent, same as before this prop existed. */
   initialKind?: DreamKind;
   /** For <ImageUpload>'s own path convention ({user_id}/{dream_id}/{uuid}.webp) — never trusted as authorization by itself (storage RLS, migration 0032, is what actually enforces it), just what a fresh upload's path is built from. */
@@ -678,6 +683,13 @@ export function DreamFormDialog({
               isOwner
               path="/dreams"
             />
+          )}
+
+          {/* P10.3: social link capture. Same "needs a real id" gate
+              as ShareControl above -- a link's entry_id has to point
+              at something that actually exists. */}
+          {mode === "edit" && item && (
+            <DreamLinksSection entryId={item.id} initialLinks={links ?? []} />
           )}
 
           {/* P8.4: "achieved is not promoted... promoting is the dream

@@ -347,6 +347,121 @@ export type Database = {
           },
         ];
       };
+      dream_entry_links: {
+        Row: {
+          canonical_url: string;
+          created_at: string;
+          entry_id: string;
+          id: string;
+          note: string | null;
+          provider: string;
+          provider_metadata: Json | null;
+          provider_post_id: string | null;
+          resolve_status: string;
+          resolved_at: string | null;
+          thumbnail_path: string | null;
+          title: string | null;
+          url: string;
+          user_id: string;
+        };
+        Insert: {
+          canonical_url: string;
+          created_at?: string;
+          entry_id: string;
+          id?: string;
+          note?: string | null;
+          provider: string;
+          provider_metadata?: Json | null;
+          provider_post_id?: string | null;
+          resolve_status?: string;
+          resolved_at?: string | null;
+          thumbnail_path?: string | null;
+          title?: string | null;
+          url: string;
+          user_id: string;
+        };
+        Update: {
+          canonical_url?: string;
+          created_at?: string;
+          entry_id?: string;
+          id?: string;
+          note?: string | null;
+          provider?: string;
+          provider_metadata?: Json | null;
+          provider_post_id?: string | null;
+          resolve_status?: string;
+          resolved_at?: string | null;
+          thumbnail_path?: string | null;
+          title?: string | null;
+          url?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "dream_entry_links_entry_id_fkey";
+            columns: ["entry_id"];
+            isOneToOne: false;
+            referencedRelation: "someday_items";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "dream_entry_links_entry_id_fkey";
+            columns: ["entry_id"];
+            isOneToOne: false;
+            referencedRelation: "v_dream_affordability";
+            referencedColumns: ["dream_id"];
+          },
+          {
+            foreignKeyName: "dream_entry_links_entry_id_fkey";
+            columns: ["entry_id"];
+            isOneToOne: false;
+            referencedRelation: "v_dream_prune_candidates";
+            referencedColumns: ["dream_id"];
+          },
+          {
+            foreignKeyName: "dream_entry_links_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "dream_entry_links_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "v_allocation_summary";
+            referencedColumns: ["user_id"];
+          },
+          {
+            foreignKeyName: "dream_entry_links_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "v_checkin_streak";
+            referencedColumns: ["user_id"];
+          },
+          {
+            foreignKeyName: "dream_entry_links_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "v_financial_horizon";
+            referencedColumns: ["user_id"];
+          },
+          {
+            foreignKeyName: "dream_entry_links_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "v_monthly_capacity";
+            referencedColumns: ["user_id"];
+          },
+          {
+            foreignKeyName: "dream_entry_links_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "v_user_capacity";
+            referencedColumns: ["user_id"];
+          },
+        ];
+      };
       friendships: {
         Row: {
           addressee_id: string;

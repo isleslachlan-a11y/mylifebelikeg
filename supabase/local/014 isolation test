@@ -44,6 +44,8 @@ declare
     'trip_stops', 'trips', 'user_achievements',
     -- Friends and sharing (0044)
     'friendships', 'user_blocks',
+    -- Dream entry links (0045)
+    'dream_entry_links',
     -- views
     'v_allocation_summary', 'v_available_presets', 'v_checkin_streak',
     'v_countries_visited', 'v_critical_path', 'v_dream_affordability',
@@ -723,6 +725,71 @@ begin
   assert n = 1, 'A should see C listed through v_my_shares';
 end $$;
 
+select set_config('request.jwt.claim.sub', '55555555-5555-5555-5555-555555555555', false);
+
+-- =============================================================================
+-- PART 5d: dream entry links (0045). Strictly owner-only RLS, no
+-- share_grants involvement at all -- unlike someday_items itself,
+-- which a view grant can read. A saved link is confirmed unreachable
+-- to B (unrelated) via all four adversarial paths the brief specifies:
+-- direct select, a join through someday_items, a forged insert against
+-- A's real entry_id, and update/delete of A's real link row.
+-- =============================================================================
+select set_config('request.jwt.claim.sub', '44444444-4444-4444-4444-444444444444', false);
+do $$
+declare v_link_id uuid;
+begin
+  insert into dream_entry_links (id, entry_id, user_id, provider, url, canonical_url, title)
+  values (
+    'a0000000-0000-0000-0000-000000000091', 'a0000000-0000-0000-0000-000000000050',
+    '44444444-4444-4444-4444-444444444444', 'instagram',
+    'https://www.instagram.com/p/xyz/', 'https://www.instagram.com/p/xyz/', 'A''s saved link'
+  )
+  returning id into v_link_id;
+end $$;
+
+select set_config('request.jwt.claim.sub', '55555555-5555-5555-5555-555555555555', false);
+do $$
+declare n int;
+begin
+  -- Direct select.
+  select count(*) into n from dream_entry_links where id = 'a0000000-0000-0000-0000-000000000091';
+  assert n = 0, 'LEAK: B reads A''s dream entry link directly';
+
+  -- Via a join through someday_items -- proves the isolation holds on
+  -- dream_entry_links' own policy, not just on whatever filtered the
+  -- someday_items side of a join.
+  select count(*) into n
+    from dream_entry_links del
+    join someday_items si on si.id = del.entry_id
+   where del.id = 'a0000000-0000-0000-0000-000000000091';
+  assert n = 0, 'LEAK: B reads A''s dream entry link via a join from someday_items';
+
+  -- Forged insert against A's real entry_id ("a user cannot attach a
+  -- link to someone else's entry by guessing an id", brief verbatim).
+  begin
+    insert into dream_entry_links (entry_id, user_id, provider, url, canonical_url)
+    values ('a0000000-0000-0000-0000-000000000050', '55555555-5555-5555-5555-555555555555',
+            'other', 'https://example.com/forged', 'https://example.com/forged');
+    assert false, 'LEAK: B attached a link to A''s dream by guessing its id';
+  exception when insufficient_privilege then null;
+  end;
+
+  update dream_entry_links set title = 'pwned' where id = 'a0000000-0000-0000-0000-000000000091';
+  delete from dream_entry_links where id = 'a0000000-0000-0000-0000-000000000091';
+end $$;
+
+reset role;
+do $$
+declare n int;
+begin
+  select count(*) into n from dream_entry_links
+   where id = 'a0000000-0000-0000-0000-000000000091' and title <> 'pwned';
+  assert n = 1, 'LEAK: B updated A''s dream entry link';
+  select count(*) into n from dream_entry_links where id = 'a0000000-0000-0000-0000-000000000091';
+  assert n = 1, 'LEAK: B deleted A''s dream entry link';
+end $$;
+set role authenticated;
 select set_config('request.jwt.claim.sub', '55555555-5555-5555-5555-555555555555', false);
 
 -- =============================================================================
